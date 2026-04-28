@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#7c6af7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="copa">
+<title>copa</title>
+<style>
+:root{--accent:#7c6af7;--accent2:#5de8c1;--danger:#f87171;--success:#4ade80}
+[data-theme="light"]{--bg:#f8f9fc;--surface:#ffffff;--border:#e2e4ef;--text:#1a1d27;--muted:#6b7280}
+[data-theme="dark"]{--bg:#0f1117;--surface:#1a1d27;--border:#2e3347;--text:#e2e4ef;--muted:#6b7280}
+*{box-sizing:border-box;margin:0;padding:0}
+html{overflow-x:hidden}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:1rem;overflow-x:hidden;width:100%}
+header{width:100%;max-width:780px;display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem;flex-wrap:wrap}
+h1{font-size:1.4rem;font-weight:700;letter-spacing:-.02em;word-break:keep-all}
+h1 span{color:var(--accent)}
+@media(max-width:600px){h1{font-size:1.2rem}}
+.badge{font-size:.7rem;padding:.2rem .6rem;border-radius:99px;font-weight:600;letter-spacing:.05em}
+.badge.ok{background:#14532d;color:var(--success)}
+.badge.err{background:#450a0a;color:var(--danger)}
+.badge.warn{background:#422006;color:#fb923c}
+.card{width:100%;max-width:780px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1.25rem;overflow:hidden}
+@media(min-width:600px){.card{padding:1.25rem 1.5rem}}
+.card-title{font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem}
+textarea{width:100%;min-height:200px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'JetBrains Mono','Fira Code',monospace;font-size:.85rem;padding:.75rem;resize:vertical;outline:none;transition:border-color .2s;line-height:1.6;max-width:100%}
+@media(min-width:600px){textarea{min-height:280px;padding:.75rem 1rem}}
+textarea:focus{border-color:var(--accent)}
+.above-actions{display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;width:100%}
+.below-actions{display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap;align-items:center;width:100%}
+.action-group{display:flex;gap:.5rem;padding:.3rem;background:var(--bg);border-radius:8px;flex-wrap:wrap}
+@media(max-width:600px){
+  .above-actions button{flex:1}
+  .above-actions .source-select{width:100%}
+  .below-actions{gap:.4rem}
+  .below-actions .action-group button{flex:1;min-width:0}
+}
+button{padding:.5rem 1rem;border-radius:6px;border:none;font-size:.85rem;font-weight:600;cursor:pointer;transition:opacity .15s,transform .1s;display:flex;align-items:center;justify-content:center;gap:.4rem;white-space:nowrap;min-width:0}
+@media(max-width:600px){button{padding:.5rem .75rem;font-size:.8rem}}
+button:active{transform:scale(.97)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-secondary{background:var(--border);color:var(--text)}
+.btn-danger{background:#450a0a;color:var(--danger)}
+#status{font-size:.78rem;margin-top:.5rem;min-height:1.2em;color:var(--muted);transition:color .2s}
+#status.ok{color:var(--success)}
+#status.err{color:var(--danger)}
+.token-row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;width:100%}
+.token-input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:monospace;font-size:.85rem;padding:.5rem .75rem;outline:none;max-width:100%}
+@media(max-width:600px){.token-row{gap:.4rem}.token-row button{flex-shrink:0}}
+.token-input:focus{border-color:var(--accent)}
+.tip{font-size:.75rem;color:var(--muted);margin-top:.5rem;line-height:1.5;word-break:break-word;overflow-wrap:break-word}
+.tip code{background:var(--border);padding:.1em .35em;border-radius:4px;font-family:monospace;word-break:break-all}
+@media(max-width:600px){.tip{font-size:.7rem}}
+#auth-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100}
+.auth-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:1.5rem 1rem;width:calc(100% - 2rem);max-width:420px;text-align:center;margin:0 1rem}
+@media(min-width:600px){.auth-box{padding:2.5rem 2rem}}
+.auth-box h2{font-size:1.2rem;margin-bottom:.5rem}
+.auth-box p{color:var(--muted);font-size:.85rem;margin-bottom:1.5rem}
+.auth-box input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:monospace;font-size:.9rem;padding:.65rem 1rem;outline:none;margin-bottom:.85rem;text-align:center;letter-spacing:.05em}
+.auth-box input.auth-text{text-align:left;letter-spacing:0;font-family:inherit}
+.auth-box input:focus{border-color:var(--accent)}
+.auth-box button{width:100%;justify-content:center;padding:.65rem}
+.auth-err{color:var(--danger);font-size:.8rem;margin-top:.5rem;min-height:1.2em}
+.sync-row{display:flex;align-items:center;gap:.5rem;margin-top:.5rem;font-size:.78rem;color:var(--muted);flex-wrap:wrap;width:100%}
+.sync-row input[type=checkbox]{accent-color:var(--accent)}
+.sync-row select{max-width:100%;min-width:0}
+#last-sync{margin-left:auto;white-space:nowrap}
+@media(max-width:600px){.sync-row{font-size:.7rem;gap:.4rem}#last-sync{width:100%;margin-left:0;margin-top:.25rem}}
+.theme-picker{display:flex;gap:.25rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.2rem}
+.theme-picker button{padding:.3rem .5rem;border-radius:6px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:.7rem;font-weight:600}
+.theme-picker button.active{background:var(--accent);color:#fff}
+.theme-picker button:hover:not(.active){background:var(--border)}
+.source-select{background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:.4rem .8rem;font-size:.85rem;font-weight:600;outline:none;cursor:pointer;max-width:100%;min-width:0}
+.source-select:focus{border-color:var(--accent)}
+@media(max-width:600px){.source-select{padding:.4rem .6rem;font-size:.8rem}}
+.toggle-label{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--muted);cursor:pointer;user-select:none;flex-shrink:0;white-space:nowrap}
+.toggle-label input{cursor:pointer}
+#toast-container{position:fixed;top:1rem;right:1rem;z-index:999;display:flex;flex-direction:column;gap:.4rem;pointer-events:none;max-width:min(280px,calc(100vw - 2rem))}
+.toast{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:.45rem .85rem;font-size:.8rem;color:var(--text);opacity:1;transition:opacity .5s ease;box-shadow:0 2px 10px rgba(0,0,0,.22)}
+.toast.ok{border-color:var(--success);color:var(--success)}
+.toast.err{border-color:var(--danger);color:var(--danger)}
+.toast.fade{opacity:0}
+/* server switcher */
+.server-switcher-btn{background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:.4rem .75rem;font-size:.8rem;font-weight:600;outline:none;cursor:pointer;max-width:160px;display:flex;align-items:center;gap:.4rem;overflow:hidden;white-space:nowrap;flex-shrink:0}
+.server-switcher-btn:hover{border-color:var(--accent)}
+.server-switcher-btn span{overflow:hidden;text-overflow:ellipsis}
+@media(max-width:600px){.server-switcher-btn{max-width:120px;font-size:.75rem}}
+/* servers panel */
+#servers-panel{position:fixed;inset:0;z-index:200;display:flex;justify-content:flex-end}
+.servers-panel-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+.servers-panel-drawer{position:relative;width:min(380px,100vw);background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;height:100%;overflow:hidden}
+.servers-panel-header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-bottom:1px solid var(--border);flex-shrink:0}
+.servers-panel-footer{padding:.75rem 1rem;border-top:1px solid var(--border);flex-shrink:0}
+#server-list-view{display:flex;flex-direction:column;flex:1;overflow:hidden}
+#server-list-container{flex:1;overflow-y:auto;padding:.5rem 0}
+.server-row{display:flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border-bottom:1px solid var(--border)}
+.server-row.active-server{border-left:3px solid var(--accent);padding-left:calc(1rem - 3px)}
+.server-row-info{flex:1;min-width:0}
+.server-row-name{font-size:.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.server-row-url{font-size:.72rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:.15rem}
+.server-row-actions{display:flex;gap:.3rem;flex-shrink:0}
+.server-row-actions button{padding:.25rem .45rem;font-size:.72rem;border-radius:5px}
+.server-active-badge{font-size:.7rem;color:var(--success);font-weight:600;padding:.2rem .5rem;background:#14532d;border-radius:99px;white-space:nowrap}
+#server-form-panel{flex-direction:column;flex:1;overflow:hidden}
+.server-form-body{padding:.75rem 1rem;display:flex;flex-direction:column;gap:.35rem;overflow-y:auto;flex:1}
+.sf-label{font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-top:.2rem}
+.sf-input{background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.85rem;padding:.5rem .75rem;outline:none;width:100%;font-family:inherit}
+.sf-input:focus{border-color:var(--accent)}
+.sf-actions{display:flex;gap:.5rem;margin-top:.25rem}
+.sf-actions button{flex:1}
+</style>
+</head>
+<body>
+
+<div id="toast-container"></div>
+
+<div id="auth-overlay">
+  <div class="auth-box">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7c6af7" stroke-width="2" style="margin:0 auto 1rem"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    <h2>copa</h2>
+    <p>Add a server to get started.</p>
+    <input id="ov-name" class="auth-text" type="text" placeholder="Server name (e.g. Home)" autocomplete="off">
+    <input id="ov-url" class="auth-text" type="url" placeholder="https://copa.example.com" autocomplete="off" spellcheck="false">
+    <input id="ov-token" type="password" placeholder="paste auth token here" autocomplete="off" spellcheck="false">
+    <button class="btn-primary" onclick="submitFirstServer()">Connect</button>
+    <div class="auth-err" id="auth-err"></div>
+    <p class="tip" style="margin-top:1rem">Or open as <code>http://host:8080/#token=TOKEN</code></p>
+  </div>
+</div>
+
+<div id="servers-panel" style="display:none">
+  <div class="servers-panel-backdrop" onclick="hideServersPanel()"></div>
+  <div class="servers-panel-drawer">
+    <div class="servers-panel-header">
+      <span class="card-title" style="margin:0" id="servers-panel-title">Servers</span>
+      <button class="btn-secondary" onclick="hideServersPanel()" style="padding:.3rem .6rem;font-size:.8rem;min-width:0">✕</button>
+    </div>
+    <div id="server-list-view">
+      <div id="server-list-container"></div>
+      <div class="servers-panel-footer">
+        <button class="btn-primary" style="width:100%;justify-content:center" onclick="openAddServerForm(null)">+ Add Server</button>
+      </div>
+    </div>
+    <div id="server-form-panel" style="display:none">
+      <div class="server-form-body">
+        <label class="sf-label">Name</label>
+        <input id="sf-name" class="sf-input" type="text" placeholder="My Server" autocomplete="off">
+        <label class="sf-label">URL</label>
+        <input id="sf-url" class="sf-input" type="url" placeholder="https://copa.example.com" autocomplete="off" spellcheck="false">
+        <label class="sf-label">Token</label>
+        <input id="sf-token" class="sf-input" type="password" placeholder="paste token here" autocomplete="off" spellcheck="false">
+        <div class="auth-err" id="sf-err"></div>
+        <div class="sf-actions">
+          <button class="btn-secondary" onclick="testAndShowResult()">Test</button>
+          <button class="btn-primary" onclick="submitServerForm()">Save</button>
+        </div>
+        <button class="btn-secondary" style="margin-top:.4rem;justify-content:center;width:100%" onclick="closeServerForm()">← Back</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<header>
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7c6af7" stroke-width="2">
+    <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M6 7h4M6 11h8"/>
+  </svg>
+  <h1><span>copa</span></h1>
+  <button id="server-switcher-btn" class="server-switcher-btn" onclick="showServersPanel()">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+    <span id="server-switcher-label">loading…</span>
+  </button>
+  <div class="theme-picker">
+    <button onclick="setTheme('light')" data-theme-btn="light">Light</button>
+    <button onclick="setTheme('auto')" data-theme-btn="auto">Auto</button>
+    <button onclick="setTheme('dark')" data-theme-btn="dark">Dark</button>
+  </div>
+  <span class="badge warn" id="conn-badge">connecting…</span>
+</header>
+
+<div class="card">
+  <div class="card-title">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    Clipboard
+  </div>
+  <div class="above-actions">
+    <select id="source-select" class="source-select" onchange="sourceChanged()">
+      <option value="clipboard">Server Clipboard</option>
+      <option value="buffer">Tmux Buffer</option>
+    </select>
+    <button id="btn-pull" class="btn-secondary" onclick="doPull()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      <span id="pull-label">Server Pull</span>
+    </button>
+    <button id="btn-push" class="btn-primary" onclick="doPush()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      <span id="push-label">Server Push</span>
+    </button>
+  </div>
+  <textarea id="buf" placeholder="clipboard content…" spellcheck="false"></textarea>
+  <div class="below-actions">
+    <div id="copy-paste-group" class="action-group">
+      <button class="btn-secondary" onclick="handleCopy()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy
+      </button>
+      <button class="btn-secondary" onclick="handlePaste()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
+        Paste
+      </button>
+    </div>
+    <button class="btn-danger" onclick="clearBuf()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+      Clear
+    </button>
+  </div>
+  <div class="sync-row">
+    <label class="toggle-label">
+      <input type="checkbox" id="direct-mode">
+      <span>Direct sync</span>
+    </label>
+    <span style="color:var(--border);flex-shrink:0">•</span>
+    <div style="display:flex;align-items:center;gap:.4rem;flex-shrink:0;white-space:nowrap">
+      <input type="checkbox" id="auto-sync" style="accent-color:var(--accent);cursor:pointer">
+      <label for="auto-sync" style="cursor:pointer">Auto-pull every</label>
+      <select id="sync-interval" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.2rem .4rem;font-size:.78rem">
+        <option value="2000">2 s</option>
+        <option value="5000" selected>5 s</option>
+        <option value="10000">10 s</option>
+        <option value="30000">30 s</option>
+      </select>
+    </div>
+    <span id="last-sync"></span>
+  </div>
+  <div id="status"></div>
+  <p class="tip" style="margin-top:.75rem">
+    <strong>curl:</strong> <code>curl -H "Authorization: Bearer TOKEN" <span id="curl-base">http://host</span>/api/<span id="api-endpoint">clipboard</span></code> (GET/POST)
+  </p>
+</div>
+
+<div class="card">
+  <div class="card-title">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+    Shareable Link
+  </div>
+  <div class="token-row">
+    <input class="token-input" id="token-display" type="password" readonly>
+    <button class="btn-secondary" onclick="toggleTokenVisibility()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      <span id="toggle-label">Show</span>
+    </button>
+    <button class="btn-secondary" onclick="copyLink()">Copy link</button>
+  </div>
+  <p class="tip">The token lives only in the URL <code>#fragment</code> — it never reaches server logs.</p>
+</div>
+
+<script>
+(function(){
+let activeServer=null;
+let syncTimer=null;
+let currentSource='clipboard';
+let tmuxAvailable=true;
+let db=null;
+let serverUnreachableNotified=false;
+
+// ── Toast / badge ──
+function toast(msg,cls,persistent){
+  const c=document.getElementById('toast-container');
+  const el=document.createElement('div');
+  el.className='toast'+(cls?' '+cls:'');
+  el.textContent=msg;
+  c.appendChild(el);
+  if(!persistent){
+    setTimeout(()=>el.classList.add('fade'),2200);
+    setTimeout(()=>{if(c.contains(el))c.removeChild(el);},2700);
+  }
+  return el;
+}
+function setStatus(m,c){const e=document.getElementById('status');e.textContent=m;e.className=c;}
+function setBadge(t,c){const e=document.getElementById('conn-badge');e.textContent=t;e.className='badge '+c;}
+function setLastSync(){document.getElementById('last-sync').textContent='last sync '+new Date().toLocaleTimeString();}
+
+// ── IndexedDB v2 ──
+function openDB(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open('copa',2);
+    req.onerror=()=>reject(req.error);
+    req.onsuccess=()=>resolve(req.result);
+    req.onupgradeneeded=e=>{
+      const idb=e.target.result;
+      const tx=e.target.transaction;
+      if(!idb.objectStoreNames.contains('servers'))idb.createObjectStore('servers',{keyPath:'id'});
+      if(!idb.objectStoreNames.contains('meta'))idb.createObjectStore('meta',{keyPath:'key'});
+      if(e.oldVersion===1&&idb.objectStoreNames.contains('tokens')){
+        const gr=tx.objectStore('tokens').get('current');
+        gr.onsuccess=()=>{
+          if(gr.result){
+            tx.objectStore('servers').put({id:'legacy',name:'Default',url:location.origin,token:gr.result});
+            tx.objectStore('meta').put({key:'activeServer',value:'legacy'});
+          }
+        };
+      }
+    };
+  });
+}
+
+function dbGetAllServers(){
+  return new Promise((res,rej)=>{
+    const r=db.transaction('servers','readonly').objectStore('servers').getAll();
+    r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);
+  });
+}
+function dbGetServer(id){
+  return new Promise((res,rej)=>{
+    const r=db.transaction('servers','readonly').objectStore('servers').get(id);
+    r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);
+  });
+}
+function dbPutServer(s){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('servers','readwrite');
+    tx.objectStore('servers').put(s);
+    tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);
+  });
+}
+function dbDeleteServer(id){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(['servers','meta'],'readwrite');
+    tx.objectStore('servers').delete(id);
+    const gr=tx.objectStore('meta').get('activeServer');
+    gr.onsuccess=()=>{if(gr.result&&gr.result.value===id)tx.objectStore('meta').delete('activeServer');};
+    tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);
+  });
+}
+function dbGetActiveId(){
+  return new Promise((res,rej)=>{
+    const r=db.transaction('meta','readonly').objectStore('meta').get('activeServer');
+    r.onsuccess=()=>res(r.result?r.result.value:undefined);r.onerror=()=>rej(r.error);
+  });
+}
+function dbSetActiveId(id){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('meta','readwrite');
+    tx.objectStore('meta').put({key:'activeServer',value:id});
+    tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);
+  });
+}
+function dbClearActiveId(){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('meta','readwrite');
+    tx.objectStore('meta').delete('activeServer');
+    tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);
+  });
+}
+
+function generateId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+
+// ── Server management ──
+async function loadActiveServer(){
+  const id=await dbGetActiveId();
+  if(!id)return null;
+  return(await dbGetServer(id))||null;
+}
+
+async function setActiveServer(id){
+  const s=await dbGetServer(id);
+  if(!s)return;
+  activeServer=s;
+  await dbSetActiveId(id);
+  serverUnreachableNotified=false;
+  renderServerSwitcher();
+}
+
+async function saveServer(server,makeActive){
+  await dbPutServer(server);
+  if(makeActive||!activeServer){activeServer=server;await dbSetActiveId(server.id);}
+  renderServerSwitcher();
+  renderServerList();
+}
+
+async function deleteServer(id){
+  const all=await dbGetAllServers();
+  const rest=all.filter(s=>s.id!==id);
+  await dbDeleteServer(id);
+  if(activeServer&&activeServer.id===id){
+    if(rest.length){await setActiveServer(rest[0].id);}
+    else{activeServer=null;showFirstRunOverlay();}
+  }
+  renderServerList();
+  renderServerSwitcher();
+}
+
+async function testServer(url,tok){
+  const ctrl=new AbortController();
+  const t=setTimeout(()=>ctrl.abort(),5000);
+  try{
+    const r=await fetch(url+'/api/clipboard',{headers:{'Authorization':'Bearer '+tok},signal:ctrl.signal});
+    clearTimeout(t);
+    if(r.ok)return{ok:true};
+    if(r.status===401)return{ok:false,error:'401 unauthorized — check token'};
+    return{ok:false,error:'HTTP '+r.status};
+  }catch(e){clearTimeout(t);return{ok:false,error:'Network error: '+e.message};}
+}
+
+// ── apiFetch ──
+async function apiFetch(method,path,body){
+  const base=(activeServer&&activeServer.url)?activeServer.url:'';
+  const tok=activeServer?activeServer.token:'';
+  const opts={method,headers:{'Authorization':'Bearer '+tok}};
+  if(body!==undefined){opts.headers['Content-Type']='text/plain';opts.body=body;}
+  return fetch(base+path,opts);
+}
+
+// ── Theme ──
+function getSystemTheme(){return window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}
+function applyTheme(t){document.documentElement.setAttribute('data-theme',t==='auto'?getSystemTheme():t);}
+function setTheme(t){
+  localStorage.setItem('theme',t);applyTheme(t);
+  document.querySelectorAll('[data-theme-btn]').forEach(b=>b.classList.toggle('active',b.dataset.themeBtn===t));
+}
+(function initTheme(){
+  const saved=localStorage.getItem('theme')||'auto';
+  applyTheme(saved);
+  document.querySelectorAll('[data-theme-btn]').forEach(b=>b.classList.toggle('active',b.dataset.themeBtn===saved));
+  window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>{if(localStorage.getItem('theme')==='auto')applyTheme('auto');});
+})();
+
+// ── First-run overlay ──
+function showFirstRunOverlay(){
+  document.getElementById('ov-url').value=location.origin;
+  document.getElementById('ov-name').value='Default';
+  document.getElementById('ov-token').value='';
+  document.getElementById('auth-err').textContent='';
+  document.getElementById('auth-overlay').style.display='flex';
+}
+function hideFirstRunOverlay(){document.getElementById('auth-overlay').style.display='none';}
+
+async function submitFirstServer(){
+  const name=document.getElementById('ov-name').value.trim()||'Default';
+  const url=document.getElementById('ov-url').value.trim().replace(/\/$/,'');
+  const tok=document.getElementById('ov-token').value.trim();
+  const err=document.getElementById('auth-err');
+  if(!tok){err.textContent='Token cannot be empty.';return;}
+  if(!url){err.textContent='URL cannot be empty.';return;}
+  err.textContent='Testing…';
+  const res=await testServer(url,tok);
+  if(!res.ok){err.textContent=res.error;return;}
+  await saveServer({id:generateId(),name,url,token:tok},true);
+  hideFirstRunOverlay();
+  await continueInit();
+}
+
+document.getElementById('ov-name').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('ov-url').focus();});
+document.getElementById('ov-url').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('ov-token').focus();});
+document.getElementById('ov-token').addEventListener('keydown',e=>{if(e.key==='Enter')submitFirstServer();});
+
+// ── Fragment ──
+function parseFragment(){
+  const p=new URLSearchParams(location.hash.slice(1));
+  return{token:p.get('token')||'',url:p.get('url')||''};
+}
+
+async function handleFragmentServers(fragToken,fragUrl){
+  if(!fragToken)return;
+  if(fragUrl){
+    const clean=fragUrl.replace(/\/$/,'');
+    const doSave=window.confirm('Save new server?\n\nURL: '+clean+'\n\nOK = save and connect, Cancel = connect without saving.');
+    const s={id:generateId(),name:'Imported',url:clean,token:fragToken};
+    if(doSave){await saveServer(s,true);}
+    else{activeServer=s;renderServerSwitcher();}
+  }else{
+    if(activeServer){activeServer.token=fragToken;await saveServer(activeServer,false);}
+    else{await saveServer({id:generateId(),name:'Default',url:location.origin,token:fragToken},true);}
+  }
+}
+
+// ── Servers panel ──
+let editingServerId=null;
+
+function showServersPanel(){
+  renderServerList();
+  showServersList();
+  document.getElementById('servers-panel').style.display='flex';
+}
+function hideServersPanel(){document.getElementById('servers-panel').style.display='none';}
+
+function showServersList(){
+  document.getElementById('server-list-view').style.display='';
+  document.getElementById('server-form-panel').style.display='none';
+  document.getElementById('servers-panel-title').textContent='Servers';
+}
+
+function openAddServerForm(srv){
+  editingServerId=srv?srv.id:null;
+  document.getElementById('servers-panel-title').textContent=srv?'Edit Server':'Add Server';
+  document.getElementById('sf-name').value=srv?srv.name:'';
+  document.getElementById('sf-url').value=srv?srv.url:'';
+  document.getElementById('sf-token').value=srv?srv.token:'';
+  const err=document.getElementById('sf-err');
+  err.textContent='';err.style.color='var(--danger)';
+  document.getElementById('server-list-view').style.display='none';
+  document.getElementById('server-form-panel').style.display='flex';
+}
+function closeServerForm(){showServersList();editingServerId=null;}
+
+async function testAndShowResult(){
+  const url=document.getElementById('sf-url').value.trim().replace(/\/$/,'');
+  const tok=document.getElementById('sf-token').value.trim();
+  const err=document.getElementById('sf-err');
+  if(!url||!tok){err.style.color='var(--danger)';err.textContent='Fill in URL and token first.';return;}
+  err.style.color='var(--muted)';err.textContent='Testing…';
+  const res=await testServer(url,tok);
+  if(res.ok){err.style.color='var(--success)';err.textContent='Connected!';}
+  else{err.style.color='var(--danger)';err.textContent=res.error;}
+}
+
+async function submitServerForm(){
+  const name=document.getElementById('sf-name').value.trim()||'Server';
+  const url=document.getElementById('sf-url').value.trim().replace(/\/$/,'');
+  const tok=document.getElementById('sf-token').value.trim();
+  const err=document.getElementById('sf-err');
+  err.style.color='var(--danger)';
+  if(!tok){err.textContent='Token cannot be empty.';return;}
+  if(!url||(!url.startsWith('http://')&&!url.startsWith('https://'))){err.textContent='Enter a valid http:// or https:// URL.';return;}
+  const id=editingServerId||generateId();
+  const s={id,name,url,token:tok};
+  await saveServer(s,!editingServerId&&!activeServer);
+  if(editingServerId&&activeServer&&activeServer.id===editingServerId){activeServer=s;renderServerSwitcher();updateCurlTip();}
+  closeServerForm();
+  toast('Server saved','ok');
+}
+
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function renderServerSwitcher(){
+  const label=document.getElementById('server-switcher-label');
+  const btn=document.getElementById('server-switcher-btn');
+  if(activeServer){label.textContent=activeServer.name;btn.title=activeServer.url;}
+  else{label.textContent='No server';btn.title='Add a server';}
+  updateCurlTip();
+  if(activeServer)document.getElementById('token-display').value=activeServer.token;
+}
+
+function updateCurlTip(){
+  document.getElementById('curl-base').textContent=(activeServer&&activeServer.url)?activeServer.url:'http://host';
+}
+
+async function renderServerList(){
+  const all=await dbGetAllServers();
+  const c=document.getElementById('server-list-container');
+  if(!all.length){
+    c.innerHTML='<p style="padding:1rem;font-size:.8rem;color:var(--muted);text-align:center">No servers yet.</p>';
+    return;
+  }
+  c.innerHTML=all.map(s=>{
+    const active=activeServer&&activeServer.id===s.id;
+    return`<div class="server-row${active?' active-server':''}">
+<div class="server-row-info"><div class="server-row-name">${escHtml(s.name)}</div><div class="server-row-url">${escHtml(s.url)}</div></div>
+<div class="server-row-actions">
+${active?'<span class="server-active-badge">active</span>':`<button class="btn-secondary" onclick="activateServer('${s.id}')">Use</button>`}
+<button class="btn-secondary" onclick="testServerRow('${s.id}')">Test</button>
+<button class="btn-secondary" onclick="editServerRow('${s.id}')">Edit</button>
+<button class="btn-danger" onclick="deleteServerRow('${s.id}')">✕</button>
+</div></div>`;
+  }).join('');
+}
+
+async function activateServer(id){
+  await setActiveServer(id);
+  renderServerList();
+  setBadge('connecting…','warn');
+  checkTmuxAvailability();
+  pullFromServer();
+  if(activeServer)toast('Switched to '+activeServer.name,'ok');
+}
+async function testServerRow(id){
+  const s=await dbGetServer(id);if(!s)return;
+  const res=await testServer(s.url,s.token);
+  if(res.ok)toast(s.name+': connected','ok');else toast(s.name+': '+res.error,'err');
+}
+async function editServerRow(id){const s=await dbGetServer(id);if(s)openAddServerForm(s);}
+async function deleteServerRow(id){
+  const s=await dbGetServer(id);if(!s)return;
+  if(!window.confirm('Delete server "'+s.name+'"?'))return;
+  await deleteServer(id);toast('Server deleted','');
+}
+
+// ── Clipboard ops ──
+async function checkTmuxAvailability(){
+  try{
+    const r=await apiFetch('GET','/api/buffer');
+    tmuxAvailable=r.status!==503;
+    const sel=document.getElementById('source-select');
+    const opt=sel.querySelector('option[value="buffer"]');
+    if(!tmuxAvailable){
+      opt.disabled=true;opt.textContent='Tmux Buffer (disabled)';
+      if(currentSource==='buffer'){sel.value='clipboard';sourceChanged();}
+    }else{opt.disabled=false;opt.textContent='Tmux Buffer';}
+  }catch(e){}
+}
+
+function sourceChanged(){
+  currentSource=document.getElementById('source-select').value;
+  document.getElementById('api-endpoint').textContent=currentSource;
+  stopSync();pullFromServer();
+}
+
+document.getElementById('direct-mode').addEventListener('change',updateDirectMode);
+function updateDirectMode(){
+  const d=document.getElementById('direct-mode').checked;
+  document.getElementById('copy-paste-group').style.display=d?'none':'';
+  document.getElementById('pull-label').textContent=d?'Copy from server':'Server Pull';
+  document.getElementById('push-label').textContent=d?'Paste to server':'Server Push';
+}
+
+async function pullFromServer(silent){
+  if(!activeServer)return;
+  const ep=currentSource==='buffer'?'/api/buffer':'/api/clipboard';
+  if(!silent)setBadge('connecting…','warn');
+  try{
+    const r=await apiFetch('GET',ep);
+    if(r.ok){
+      let content;
+      if(currentSource==='buffer'){const d=await r.json();content=d.content;}
+      else{content=await r.text();}
+      document.getElementById('buf').value=content;
+      if(!silent)toast('Pulled '+content.length+' chars from server','ok');
+      setBadge('connected','ok');setLastSync();
+    }else if(r.status===503){
+      if(!silent)toast('Tmux integration disabled','err');setBadge('error','err');
+    }else{
+      if(!silent)toast('Error: '+r.status,'err');setBadge('error','err');
+    }
+  }catch(e){
+    if(!serverUnreachableNotified){
+      serverUnreachableNotified=true;
+      toast('Server unreachable — switch in header','err',true);
+    }
+    setBadge('offline','err');
+  }
+}
+
+async function pushToServer(){
+  if(!activeServer)return;
+  const c=document.getElementById('buf').value;
+  const ep=currentSource==='buffer'?'/api/buffer':'/api/clipboard';
+  try{
+    const r=await apiFetch('POST',ep,c);
+    if(r.ok){toast('Pushed '+c.length+' chars to server','ok');setLastSync();}
+    else if(r.status===503)toast('Tmux integration disabled','err');
+    else toast('Error: '+r.status,'err');
+  }catch(e){toast('Network error: '+e.message,'err');}
+}
+
+async function doPull(){
+  const direct=document.getElementById('direct-mode').checked;
+  if(!direct){await pullFromServer();return;}
+  const ep=currentSource==='buffer'?'/api/buffer':'/api/clipboard';
+  setBadge('connecting…','warn');
+  try{
+    const r=await apiFetch('GET',ep);
+    if(r.ok){
+      let content;
+      if(currentSource==='buffer'){const d=await r.json();content=d.content;}
+      else{content=await r.text();}
+      const buf=document.getElementById('buf');buf.value=content;
+      try{await navigator.clipboard.writeText(content);toast('Copied '+content.length+' chars from server','ok');}
+      catch(ce){buf.select();toast('Fetched — Ctrl+C to copy','');}
+      setBadge('connected','ok');setLastSync();
+    }else if(r.status===503){toast('Tmux integration disabled','err');setBadge('error','err');}
+    else{toast('Error: '+r.status,'err');setBadge('error','err');}
+  }catch(e){toast('Error: '+e.message,'err');setBadge('offline','err');}
+}
+
+function doPush(){
+  const direct=document.getElementById('direct-mode').checked;
+  if(!direct){pushToServer();return;}
+  const buf=document.getElementById('buf');buf.focus();buf.select();
+  toast('Ready — paste with Ctrl+V','');
+}
+
+async function handleCopy(){
+  const t=document.getElementById('buf').value;
+  try{await navigator.clipboard.writeText(t);toast('Copied '+t.length+' chars','ok');}
+  catch(e){toast('Clipboard denied — use Ctrl+C','err');}
+}
+
+async function handlePaste(){
+  try{
+    const t=await navigator.clipboard.readText();
+    document.getElementById('buf').value=t;toast('Pasted '+t.length+' chars','ok');
+  }catch(e){toast('Clipboard denied — use Ctrl+V','err');}
+}
+
+function clearBuf(){document.getElementById('buf').value='';toast('Cleared','');}
+
+document.getElementById('buf').addEventListener('paste',async function(e){
+  const direct=document.getElementById('direct-mode').checked;
+  const pasted=e.clipboardData.getData('text');
+  if(direct){
+    e.preventDefault();this.value=pasted;
+    const ep=currentSource==='buffer'?'/api/buffer':'/api/clipboard';
+    try{
+      const r=await apiFetch('POST',ep,pasted);
+      if(r.ok){toast('Pasted '+pasted.length+' chars to server','ok');setLastSync();}
+      else if(r.status===503)toast('Tmux integration disabled','err');
+      else toast('Error: '+r.status,'err');
+    }catch(err){toast('Network error: '+err.message,'err');}
+  }else{setTimeout(()=>toast('Pasted '+pasted.length+' chars',''),0);}
+});
+
+function toggleTokenVisibility(){
+  const i=document.getElementById('token-display');
+  const l=document.getElementById('toggle-label');
+  if(i.type==='password'){i.type='text';l.textContent='Hide';}
+  else{i.type='password';l.textContent='Show';}
+}
+
+function copyLink(){
+  if(!activeServer){toast('No active server','err');return;}
+  const url=location.origin+location.pathname+'#token='+encodeURIComponent(activeServer.token)+'&url='+encodeURIComponent(activeServer.url);
+  navigator.clipboard.writeText(url).then(()=>toast('Link copied','ok'));
+}
+
+document.getElementById('auto-sync').addEventListener('change',function(){this.checked?startSync():stopSync();});
+document.getElementById('sync-interval').addEventListener('change',function(){if(document.getElementById('auto-sync').checked){stopSync();startSync();}});
+function startSync(){stopSync();const ms=parseInt(document.getElementById('sync-interval').value,10);syncTimer=setInterval(()=>pullFromServer(true),ms);}
+function stopSync(){if(syncTimer){clearInterval(syncTimer);syncTimer=null;}}
+
+// ── window exports ──
+window.setTheme=setTheme;
+window.showServersPanel=showServersPanel;
+window.hideServersPanel=hideServersPanel;
+window.openAddServerForm=openAddServerForm;
+window.closeServerForm=closeServerForm;
+window.submitServerForm=submitServerForm;
+window.testAndShowResult=testAndShowResult;
+window.activateServer=activateServer;
+window.testServerRow=testServerRow;
+window.editServerRow=editServerRow;
+window.deleteServerRow=deleteServerRow;
+window.submitFirstServer=submitFirstServer;
+window.sourceChanged=sourceChanged;
+window.doPull=doPull;
+window.doPush=doPush;
+window.pullFromServer=pullFromServer;
+window.pushToServer=pushToServer;
+window.handleCopy=handleCopy;
+window.handlePaste=handlePaste;
+window.clearBuf=clearBuf;
+window.copyLink=copyLink;
+window.toggleTokenVisibility=toggleTokenVisibility;
+
+// ── Init ──
+async function continueInit(){
+  hideFirstRunOverlay();
+  renderServerSwitcher();
+  updateDirectMode();
+  checkTmuxAvailability();
+  pullFromServer();
+}
+
+(async function init(){
+  db=await openDB();
+  const frag=parseFragment();
+  history.replaceState(null,null,location.pathname+location.search);
+  activeServer=await loadActiveServer();
+  if(frag.token)await handleFragmentServers(frag.token,frag.url);
+  if(!activeServer){showFirstRunOverlay();return;}
+  await continueInit();
+})();
+})();
+</script>
+</body>
+</html>

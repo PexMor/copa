@@ -1,0 +1,56 @@
+# copa configuration example
+#
+# Copy this file to: ~/.config/copa/config.toml
+#
+#   mkdir -p ~/.config/copa
+#   cp config.example.toml ~/.config/copa/config.toml
+#
+# Precedence: CLI args > environment variables > config file > defaults
+
+# ── Server config ─────────────────────────────────────────────────────────────
+
+[server]
+# Port to listen on (default: 8080)
+port = 8080
+
+# Bind address (default: 127.0.0.1)
+bind = "127.0.0.1"
+
+# Server auth token (generate: copa --generate-token)
+token = "your-server-token-here"
+
+# Path to tmux Unix socket (auto-detected from $TMUX if omitted)
+# socket = "/tmp/tmux-1000/default"
+
+# tmux session to target
+# session = "main"
+
+# ── CLI client config ─────────────────────────────────────────────────────────
+
+[cli]
+# Default remote to use when --remote is not specified
+default_remote = "local"
+
+# Define remote copa servers
+[cli.remotes.local]
+url = "http://127.0.0.1:8080"
+token = "your-server-token-here"
+
+[cli.remotes.work]
+url = "https://copa.example.com"
+token = "work-server-token"
+# Optional custom headers
+headers = { "X-Custom-Header" = "value" }
+
+[cli.remotes.home]
+url = "http://home.local:8080"
+token = "home-token"
+
+# Usage:
+#   copa serve                  # start server
+#   copa cli copy               # copy from default_remote to tmux
+#   copa cli copy -r work       # copy from work remote
+#   copa cli paste              # paste from tmux to default_remote
+#   copa cli paste -r home      # paste to home remote
+#   copa cli paste "text"       # paste literal text
+#   echo "data" | copa cli paste  # paste from stdin
