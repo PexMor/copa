@@ -1,56 +1,73 @@
 # copa configuration example
 #
-# Copy this file to: ~/.config/copa/config.toml
+# Copy to: ~/.config/copa/config.toml
 #
 #   mkdir -p ~/.config/copa
-#   cp config.example.toml ~/.config/copa/config.toml
+#   cp config.toml.example ~/.config/copa/config.toml
 #
 # Precedence: CLI args > environment variables > config file > defaults
 
-# ── Server config ─────────────────────────────────────────────────────────────
+# ── Server (copasrv) ──────────────────────────────────────────────────────────
 
 [server]
 # Port to listen on (default: 8080)
 port = 8080
 
-# Bind address (default: 127.0.0.1)
+# Bind address (default: 127.0.0.1 — change to 0.0.0.0 to expose on network)
 bind = "127.0.0.1"
 
-# Server auth token (generate: copa --generate-token)
-token = "your-server-token-here"
+# Named clipboard namespaces. Each namespace is independent with its own:
+#   - size_limit: max content size in bytes (default: 16384 = 16 KB)
+#   - read_token:  token granting read-only access
+#   - write_token: token granting write-only access
+#   - rw_token:    token granting read+write access
+# At least one token per namespace is required; any combination is valid.
 
-# Path to tmux Unix socket (auto-detected from $TMUX if omitted)
-# socket = "/tmp/tmux-1000/default"
+[server.namespaces.default]
+size_limit = 16384
+rw_token = "your-rw-token-here"          # generate: copasrv --generate-token
 
-# tmux session to target
-# session = "main"
+# Optional extra namespace with separate tokens
+[server.namespaces.shared]
+size_limit = 4096
+read_token  = "reader-token-here"
+write_token = "writer-token-here"
 
-# ── CLI client config ─────────────────────────────────────────────────────────
+# Large namespace example
+# [server.namespaces.files]
+# size_limit = 65536
+# rw_token = "files-token-here"
+
+# Legacy single-token shorthand (maps to default namespace rw_token):
+# token = "your-token-here"
+
+# ── Client (copacli) ──────────────────────────────────────────────────────────
 
 [cli]
 # Default remote to use when --remote is not specified
 default_remote = "local"
 
-# Define remote copa servers
 [cli.remotes.local]
-url = "http://127.0.0.1:8080"
-token = "your-server-token-here"
+url   = "http://127.0.0.1:8080"
+token = "your-rw-token-here"
 
 [cli.remotes.work]
-url = "https://copa.example.com"
-token = "work-server-token"
-# Optional custom headers
+url   = "https://copa.example.com"
+token = "work-token-here"
+# Optional extra headers forwarded with every request
 headers = { "X-Custom-Header" = "value" }
 
-[cli.remotes.home]
-url = "http://home.local:8080"
-token = "home-token"
-
 # Usage:
-#   copa serve                  # start server
-#   copa cli copy               # copy from default_remote to tmux
-#   copa cli copy -r work       # copy from work remote
-#   copa cli paste              # paste from tmux to default_remote
-#   copa cli paste -r home      # paste to home remote
-#   copa cli paste "text"       # paste literal text
-#   echo "data" | copa cli paste  # paste from stdin
+#   copasrv                                  start server
+#   copacli copy -r local                    download default ns → tmux buffer
+#   copacli copy -r local --namespace shared download shared ns → tmux buffer
+#   copacli copy -r local --output-cmd pbcopy               → macOS clipboard
+#   copacli copy -r local --output-cmd 'xsel -ib'           → X11 clipboard
+#   copacli copy -r local --output-cmd wl-copy              → Wayland clipboard
+#   copacli copy -r local -o -                              → stdout
+#   copacli paste -r local                   upload tmux buffer → default ns
+#   copacli paste -r local --input-cmd pbpaste               ← macOS clipboard
+#   copacli paste -r local "text"            upload literal text
+#   echo data | copacli paste -r local       upload stdin
+#   copacli watch -r local                   live WebSocket → tmux buffer (runs forever)
+#   copacli watch -r local --output-cmd pbcopy  live → macOS clipboard

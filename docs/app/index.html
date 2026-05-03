@@ -190,17 +190,16 @@ button:disabled{opacity:.4;cursor:not-allowed}
     Clipboard
   </div>
   <div class="above-actions">
-    <select id="source-select" class="source-select" onchange="sourceChanged()">
-      <option value="clipboard">Server Clipboard</option>
-      <option value="buffer">Tmux Buffer</option>
+    <select id="ns-select" class="source-select" onchange="namespaceChanged()" title="Namespace">
+      <option value="default">default</option>
     </select>
     <button id="btn-pull" class="btn-secondary" onclick="doPull()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
-      <span id="pull-label">Server Pull</span>
+      <span id="pull-label">Pull</span>
     </button>
     <button id="btn-push" class="btn-primary" onclick="doPush()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-      <span id="push-label">Server Push</span>
+      <span id="push-label">Push</span>
     </button>
   </div>
   <textarea id="buf" placeholder="clipboard content…" spellcheck="false"></textarea>
@@ -226,6 +225,12 @@ button:disabled{opacity:.4;cursor:not-allowed}
       <span>Direct sync</span>
     </label>
     <span style="color:var(--border);flex-shrink:0">•</span>
+    <label class="toggle-label">
+      <input type="checkbox" id="ws-live">
+      <span>Live</span>
+    </label>
+    <span id="ws-status" style="font-size:.72rem;color:var(--muted)"></span>
+    <span style="color:var(--border);flex-shrink:0">•</span>
     <div style="display:flex;align-items:center;gap:.4rem;flex-shrink:0;white-space:nowrap">
       <input type="checkbox" id="auto-sync" style="accent-color:var(--accent);cursor:pointer">
       <label for="auto-sync" style="cursor:pointer">Auto-pull every</label>
@@ -240,7 +245,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
   </div>
   <div id="status"></div>
   <p class="tip" style="margin-top:.75rem">
-    <strong>curl:</strong> <code>curl -H "Authorization: Bearer TOKEN" <span id="curl-base">http://host</span>/api/<span id="api-endpoint">clipboard</span></code> (GET/POST)
+    <strong>curl:</strong> <code>curl -H "Authorization: Bearer TOKEN" -H "X-Copa-Namespace: <span id="curl-ns">default</span>" <span id="curl-base">http://host</span>/api/clipboard</code> (GET/POST)
   </p>
 </div>
 
@@ -264,10 +269,11 @@ button:disabled{opacity:.4;cursor:not-allowed}
 (function(){
 let activeServer=null;
 let syncTimer=null;
-let currentSource='clipboard';
-let tmuxAvailable=true;
+let currentNamespace='default';
 let db=null;
 let serverUnreachableNotified=false;
+let wsConn=null;
+let wsReconnectTimer=null;
 
 // ── Toast / badge ──
 function toast(msg,cls,persistent){
@@ -408,14 +414,52 @@ async function testServer(url,tok){
   }catch(e){clearTimeout(t);return{ok:false,error:'Network error: '+e.message};}
 }
 
+// ── Namespace management ──
+function namespaceChanged(){
+  currentNamespace=document.getElementById('ns-select').value;
+  document.getElementById('curl-ns').textContent=currentNamespace;
+  if(document.getElementById('ws-live').checked){wsDisconnect();wsConnect();}
+  stopSync();pullFromServer();
+}
+
 // ── apiFetch ──
 async function apiFetch(method,path,body){
   const base=(activeServer&&activeServer.url)?activeServer.url:'';
   const tok=activeServer?activeServer.token:'';
-  const opts={method,headers:{'Authorization':'Bearer '+tok}};
+  const opts={method,headers:{
+    'Authorization':'Bearer '+tok,
+    'X-Copa-Namespace':currentNamespace,
+  }};
   if(body!==undefined){opts.headers['Content-Type']='text/plain';opts.body=body;}
   return fetch(base+path,opts);
 }
+
+// ── WebSocket live mode ──
+function wsConnect(){
+  if(!activeServer)return;
+  const base=activeServer.url.replace(/^https/,'wss').replace(/^http/,'ws');
+  const url=`${base}/ws?token=${encodeURIComponent(activeServer.token)}&namespace=${encodeURIComponent(currentNamespace)}`;
+  wsConn=new WebSocket(url);
+  wsConn.onmessage=function(ev){
+    document.getElementById('buf').value=typeof ev.data==='string'?ev.data:new TextDecoder().decode(ev.data);
+    setLastSync();
+    document.getElementById('ws-status').textContent='live';
+  };
+  wsConn.onopen=function(){document.getElementById('ws-status').textContent='connected';};
+  wsConn.onclose=function(){
+    document.getElementById('ws-status').textContent='reconnecting…';
+    if(document.getElementById('ws-live').checked)wsReconnectTimer=setTimeout(wsConnect,3000);
+  };
+  wsConn.onerror=function(){wsConn.close();};
+}
+function wsDisconnect(){
+  if(wsReconnectTimer){clearTimeout(wsReconnectTimer);wsReconnectTimer=null;}
+  if(wsConn){wsConn.onclose=null;wsConn.close();wsConn=null;}
+  document.getElementById('ws-status').textContent='';
+}
+document.getElementById('ws-live').addEventListener('change',function(){
+  if(this.checked){stopSync();wsConnect();}else{wsDisconnect();}
+});
 
 // ── Theme ──
 function getSystemTheme(){return window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}
@@ -549,6 +593,7 @@ function renderServerSwitcher(){
 
 function updateCurlTip(){
   document.getElementById('curl-base').textContent=(activeServer&&activeServer.url)?activeServer.url:'http://host';
+  document.getElementById('curl-ns').textContent=currentNamespace;
 }
 
 async function renderServerList(){
@@ -575,7 +620,7 @@ async function activateServer(id){
   await setActiveServer(id);
   renderServerList();
   setBadge('connecting…','warn');
-  checkTmuxAvailability();
+  if(document.getElementById('ws-live').checked){wsDisconnect();wsConnect();}
   pullFromServer();
   if(activeServer)toast('Switched to '+activeServer.name,'ok');
 }
@@ -592,25 +637,6 @@ async function deleteServerRow(id){
 }
 
 // ── Clipboard ops ──
-async function checkTmuxAvailability(){
-  try{
-    const r=await apiFetch('GET','/api/buffer');
-    tmuxAvailable=r.status!==503;
-    const sel=document.getElementById('source-select');
-    const opt=sel.querySelector('option[value="buffer"]');
-    if(!tmuxAvailable){
-      opt.disabled=true;opt.textContent='Tmux Buffer (disabled)';
-      if(currentSource==='buffer'){sel.value='clipboard';sourceChanged();}
-    }else{opt.disabled=false;opt.textContent='Tmux Buffer';}
-  }catch(e){}
-}
-
-function sourceChanged(){
-  currentSource=document.getElementById('source-select').value;
-  document.getElementById('api-endpoint').textContent=currentSource;
-  stopSync();pullFromServer();
-}
-
 document.getElementById('direct-mode').addEventListener('change',updateDirectMode);
 function updateDirectMode(){
   const d=document.getElementById('direct-mode').checked;
@@ -621,19 +647,14 @@ function updateDirectMode(){
 
 async function pullFromServer(silent){
   if(!activeServer)return;
-  const ep=currentSource==='buffer'?'/api/buffer':'/api/clipboard';
   if(!silent)setBadge('connecting…','warn');
   try{
-    const r=await apiFetch('GET',ep);
+    const r=await apiFetch('GET','/api/clipboard');
     if(r.ok){
-      let content;
-      if(currentSource==='buffer'){const d=await r.json();content=d.content;}
-      else{content=await r.text();}
+      const content=await r.text();
       document.getElementById('buf').value=content;
-      if(!silent)toast('Pulled '+content.length+' chars from server','ok');
+      if(!silent)toast('Pulled '+content.length+' chars','ok');
       setBadge('connected','ok');setLastSync();
-    }else if(r.status===503){
-      if(!silent)toast('Tmux integration disabled','err');setBadge('error','err');
     }else{
       if(!silent)toast('Error: '+r.status,'err');setBadge('error','err');
     }
@@ -649,11 +670,9 @@ async function pullFromServer(silent){
 async function pushToServer(){
   if(!activeServer)return;
   const c=document.getElementById('buf').value;
-  const ep=currentSource==='buffer'?'/api/buffer':'/api/clipboard';
   try{
-    const r=await apiFetch('POST',ep,c);
-    if(r.ok){toast('Pushed '+c.length+' chars to server','ok');setLastSync();}
-    else if(r.status===503)toast('Tmux integration disabled','err');
+    const r=await apiFetch('POST','/api/clipboard',c);
+    if(r.ok){toast('Pushed '+c.length+' chars','ok');setLastSync();}
     else toast('Error: '+r.status,'err');
   }catch(e){toast('Network error: '+e.message,'err');}
 }
@@ -661,20 +680,16 @@ async function pushToServer(){
 async function doPull(){
   const direct=document.getElementById('direct-mode').checked;
   if(!direct){await pullFromServer();return;}
-  const ep=currentSource==='buffer'?'/api/buffer':'/api/clipboard';
   setBadge('connecting…','warn');
   try{
-    const r=await apiFetch('GET',ep);
+    const r=await apiFetch('GET','/api/clipboard');
     if(r.ok){
-      let content;
-      if(currentSource==='buffer'){const d=await r.json();content=d.content;}
-      else{content=await r.text();}
+      const content=await r.text();
       const buf=document.getElementById('buf');buf.value=content;
       try{await navigator.clipboard.writeText(content);toast('Copied '+content.length+' chars from server','ok');}
       catch(ce){buf.select();toast('Fetched — Ctrl+C to copy','');}
       setBadge('connected','ok');setLastSync();
-    }else if(r.status===503){toast('Tmux integration disabled','err');setBadge('error','err');}
-    else{toast('Error: '+r.status,'err');setBadge('error','err');}
+    }else{toast('Error: '+r.status,'err');setBadge('error','err');}
   }catch(e){toast('Error: '+e.message,'err');setBadge('offline','err');}
 }
 
@@ -705,11 +720,9 @@ document.getElementById('buf').addEventListener('paste',async function(e){
   const pasted=e.clipboardData.getData('text');
   if(direct){
     e.preventDefault();this.value=pasted;
-    const ep=currentSource==='buffer'?'/api/buffer':'/api/clipboard';
     try{
-      const r=await apiFetch('POST',ep,pasted);
+      const r=await apiFetch('POST','/api/clipboard',pasted);
       if(r.ok){toast('Pasted '+pasted.length+' chars to server','ok');setLastSync();}
-      else if(r.status===503)toast('Tmux integration disabled','err');
       else toast('Error: '+r.status,'err');
     }catch(err){toast('Network error: '+err.message,'err');}
   }else{setTimeout(()=>toast('Pasted '+pasted.length+' chars',''),0);}
@@ -735,6 +748,7 @@ function stopSync(){if(syncTimer){clearInterval(syncTimer);syncTimer=null;}}
 
 // ── window exports ──
 window.setTheme=setTheme;
+window.namespaceChanged=namespaceChanged;
 window.showServersPanel=showServersPanel;
 window.hideServersPanel=hideServersPanel;
 window.openAddServerForm=openAddServerForm;
@@ -746,7 +760,6 @@ window.testServerRow=testServerRow;
 window.editServerRow=editServerRow;
 window.deleteServerRow=deleteServerRow;
 window.submitFirstServer=submitFirstServer;
-window.sourceChanged=sourceChanged;
 window.doPull=doPull;
 window.doPush=doPush;
 window.pullFromServer=pullFromServer;
@@ -762,7 +775,6 @@ async function continueInit(){
   hideFirstRunOverlay();
   renderServerSwitcher();
   updateDirectMode();
-  checkTmuxAvailability();
   pullFromServer();
 }
 

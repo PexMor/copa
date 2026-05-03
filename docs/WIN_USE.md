@@ -1,14 +1,24 @@
 # copa-tray — Windows usage guide
 
-`copa-tray.exe` is a Windows system-tray client for the copa clipboard server.
+`copa-tray.exe` is a Windows system-tray client for a `copasrv` instance.
 Right-click the tray icon to push your Windows clipboard to the server ("Copy to server")
 or pull the server clipboard back ("Paste from server").
+
+It operates on the `default` namespace using a single rw token — the same token
+you configure in `[server.namespaces.default]` on the server side.
 
 ---
 
 ## 1. Get the binary
 
-Build from source on a Windows machine (or in a cross-compile environment):
+Build from a Linux cross-compile environment:
+
+```bash
+make tray-windows
+# → target/x86_64-pc-windows-gnu/release/copa-tray.exe
+```
+
+Or build natively on Windows:
 
 ```powershell
 cargo build --release --bin copa-tray
@@ -126,8 +136,9 @@ notepad $env:TEMP\copa-tray-error.txt
 | `No server configured` | Create `%APPDATA%\copa\config.toml` with a `[cli.remotes.*]` entry, or pass `--url` + `--token` flags. |
 | `Remote 'x' not found in config file` | Check the remote name matches what is in the config file. |
 | `Remote 'x' has no url` / `no token` | Fill in the missing field in the config file. |
-| HTTP 401 / 403 | The token does not match the server's token. |
-| Connection refused / timeout | The server is not reachable at the configured URL. |
+| HTTP 401 | The token does not match any token for the `default` namespace on the server. |
+| HTTP 404 | The `default` namespace does not exist on the server — check server config. |
+| Connection refused / timeout | `copasrv` is not running or the URL is wrong. |
 
 ### Tray icon not visible
 

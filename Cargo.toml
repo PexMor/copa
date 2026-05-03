@@ -1,11 +1,15 @@
 [package]
 name = "copa"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
-name = "copa"
+name = "copasrv"
 path = "src/main.rs"
+
+[[bin]]
+name = "copacli"
+path = "src/bin/copacli.rs"
 
 [[bin]]
 name = "copa-tray"
@@ -13,17 +17,18 @@ path = "src/bin/copa-tray.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-hyper = { version = "0.14", features = ["full"] }
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["cors"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+futures-util = "0.3"
 clap = { version = "=4.4.18", features = ["derive", "env"] }
 rand = "0.8"
 hex = "0.4"
 libc = "0.2"
-indexmap = "=2.2.6"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 dirs = "5"
 ureq = "2"
-atty = "0.2"
 anyhow = "1"
 
 [target.'cfg(target_os = "windows")'.dependencies]

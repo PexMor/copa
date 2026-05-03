@@ -1,364 +1,370 @@
 # copa
 
-**Clipboard over HTTP** — expose tmux paste buffer and a server-side clipboard as an authenticated HTTP API and web UI.
+**Clipboard over HTTP** — a minimal, token-authenticated clipboard server with named namespaces, WebSocket push notifications, and a modular client.
+
+## Architecture
+
+| Binary | Role |
+|--------|------|
+| **`copasrv`** | HTTP/WebSocket server. Manages named clipboard namespaces in memory. No tmux dependency. |
+| **`copacli`** | Local client. One-shot copy/paste and persistent `watch` mode. Handles all tmux, file, and platform-clipboard I/O. |
+| **`copa-tray`** | Windows system-tray client (separate build). |
+
+The separation keeps the server's attack surface small — it stores bytes and pushes WebSocket events; it never touches tmux or runs subprocesses.
 
 ## Features
 
-- 🔐 Token-based authentication
-- 📋 Dual clipboard: tmux buffer + server-side storage
-- 🌐 Web UI with light/dark/auto themes
-- 🔄 Bi-directional sync with remote servers
-- 🖥️ System clipboard integration (macOS, X11, Wayland)
-- 📁 File I/O support
-- 🔌 Multi-remote configuration
+- Named clipboard **namespaces** — independent buffers, each with its own size limit (default 16 KB) and separate read / write / read-write tokens
+- **WebSocket push** — clients receive updates instantly without polling (`/ws`)
+- **REST API** — simple GET/POST on `/api/clipboard` with `X-Copa-Namespace` header
+- **`copacli watch`** — persistent background bridge: WebSocket → tmux buffer (or any command), auto-reconnects
+- **`copacli copy/paste`** — one-shot download/upload with full I/O routing (tmux, file, stdout, platform clipboard tools)
+- **Web UI** — namespace selector, Live WebSocket toggle, auto-pull, shareable token links
 
 ## Installation
 
 ```bash
-# Build and install to ~/bin
+# Build and install copasrv + copacli to ~/bin
 make install
 
-# Or use cargo
-cargo install --path .
+# Or just build
+cargo build --release
+# → target/release/copasrv
+# → target/release/copacli
 
-# Generate auth token
-copa --generate-token
+# Generate a token
+copasrv --generate-token
 ```
 
 ## Quick Start
 
-### 1. Start the server
+### 1. Configure
 
 ```bash
-# Start with auto-generated token
-copa serve
-
-# Or with persistent token from config
 mkdir -p ~/.config/copa
-cat > ~/.config/copa/config.toml <<EOF
-[server]
-token = "$(copa --generate-token)"
+cat > ~/.config/copa/config.toml <<'EOF'
+[server.namespaces.default]
+rw_token = "REPLACE_WITH_YOUR_TOKEN"
 
 [cli]
 default_remote = "local"
 
 [cli.remotes.local]
-url = "http://127.0.0.1:8080"
-token = "YOUR_TOKEN_HERE"
+url   = "http://127.0.0.1:8080"
+token = "REPLACE_WITH_YOUR_TOKEN"
 EOF
-
-copa serve
 ```
 
-### 2. Access the web UI
+Generate a token: `copasrv --generate-token`
 
-Open `http://127.0.0.1:8080/#token=YOUR_TOKEN` in your browser.
-
-### 3. Use the CLI
+### 2. Start the server
 
 ```bash
-# Upload tmux buffer to remote
-copa cli paste
+copasrv
+# listening on http://127.0.0.1:8080
+```
 
-# Download from remote to tmux buffer
-copa cli copy
+### 3. Use the web UI
 
-# Short aliases
-copa cli up    # upload
-copa cli down  # download
+Open `http://127.0.0.1:8080/#token=YOUR_TOKEN` — the token lives only in the URL fragment and is never sent to server logs.
+
+### 4. Use the CLI
+
+```bash
+# Upload tmux buffer → server
+copacli paste -r local
+
+# Download server → tmux buffer
+copacli copy -r local
+
+# Live bridge: server WebSocket → tmux buffer (runs forever, auto-reconnects)
+copacli watch -r local
 ```
 
 ## Configuration
 
-Configuration file: `~/.config/copa/config.toml`
+**File:** `~/.config/copa/config.toml`
 
 ```toml
 [server]
 port = 8080
-bind = "127.0.0.1"
-token = "your-server-token"
-# socket = "/tmp/tmux-1000/default"  # auto-detected
-# session = "main"
+bind = "127.0.0.1"   # change to 0.0.0.0 to expose on the network
+
+# Named namespaces — each is an independent clipboard buffer.
+# size_limit is in bytes (default: 16384 = 16 KB).
+# Provide any combination of read_token, write_token, rw_token.
+[server.namespaces.default]
+size_limit = 16384
+rw_token   = "your-rw-token"
+
+[server.namespaces.shared]
+size_limit  = 4096
+read_token  = "reader-token"
+write_token = "writer-token"
+
+# Legacy shorthand: equivalent to [server.namespaces.default] rw_token
+# token = "your-token"
 
 [cli]
 default_remote = "local"
 
 [cli.remotes.local]
-url = "http://127.0.0.1:8080"
-token = "your-server-token"
+url   = "http://127.0.0.1:8080"
+token = "your-rw-token"
 
 [cli.remotes.work]
-url = "https://copa.example.com"
+url   = "https://copa.example.com"
 token = "work-token"
 headers = { "X-Custom-Header" = "value" }
 ```
 
 ### Environment Variables
 
-All config options can be overridden via environment:
+```bash
+COPA_PORT=9000
+COPA_BIND=0.0.0.0
+COPA_TOKEN=my-token        # legacy: sets default namespace rw_token
+COPA_REMOTE=work           # copacli default remote
+COPA_NAMESPACE=shared      # copacli default namespace
+COPA_SOCKET=/tmp/tmux-1000/default
+COPA_SESSION=main
+COPA_CONFIG=/path/to/config.toml
+```
+
+Precedence: CLI args > environment variables > config file > defaults.
+
+## copasrv — Server
 
 ```bash
-export COPA_PORT=9000
-export COPA_BIND=0.0.0.0
-export COPA_TOKEN=my-token
-export COPA_SOCKET=/tmp/tmux-1000/default
-export COPA_SESSION=main
-export COPA_REMOTE=work
+# Start (reads ~/.config/copa/config.toml)
+copasrv
+
+# Override port / bind
+copasrv --port 9000 --bind 0.0.0.0
+
+# Legacy: start with a single token (auto-creates "default" namespace)
+copasrv --token secret123
+
+# Utilities
+copasrv --generate-token
+copasrv --print-config-path
 ```
 
-### Precedence
+## copacli — Client
 
-CLI args > Environment variables > Config file > Defaults
-
-## Usage
-
-### Server
+### copy — download from server
 
 ```bash
-# Start server (defaults from config)
-copa serve
+# Default output: tmux buffer (auto-detected from $TMUX)
+copacli copy -r local
 
-# Override settings
-copa serve --port 9000 --bind 0.0.0.0 --token secret123
+# Platform clipboard tools
+copacli copy -r local --output-cmd pbcopy        # macOS
+copacli copy -r local --output-cmd 'xsel -ib'    # X11
+copacli copy -r local --output-cmd wl-copy        # Wayland
 
-# Bind to all interfaces (remote access)
-copa serve --bind 0.0.0.0
+# File / stdout
+copacli copy -r local -o data.txt
+copacli copy -r local -o -
+
+# Specific namespace
+copacli copy -r local --namespace shared
 ```
 
-### CLI Client
-
-#### Basic Operations
+### paste — upload to server
 
 ```bash
-# Download from remote → tmux buffer
-copa cli copy
-copa cli down
+# Default input: tmux buffer
+copacli paste -r local
 
-# Upload tmux buffer → remote
-copa cli paste
-copa cli up
+# Platform clipboard tools
+copacli paste -r local --input-cmd pbpaste        # macOS
+copacli paste -r local --input-cmd 'xsel -ob'     # X11
+copacli paste -r local --input-cmd wl-paste        # Wayland
 
-# Use specific remote
-copa cli copy -r work
-copa cli paste -r home
+# File / stdin
+copacli paste -r local -i data.txt
+copacli paste -r local -i -
+echo "data" | copacli paste -r local
+
+# Literal text
+copacli paste -r local "hello world"
+
+# Specific namespace
+copacli paste -r local --namespace shared
 ```
 
-#### File I/O
+### watch — persistent WebSocket bridge
+
+Stays running, receives server updates, and routes them to the configured output. Auto-reconnects with exponential backoff.
 
 ```bash
-# Download to file
-copa cli copy -o data.txt
-copa cli copy -o -  # stdout
+# WebSocket → tmux buffer (default)
+copacli watch -r local
 
-# Upload from file
-copa cli paste -i data.txt
-copa cli paste -i -  # stdin
-echo "data" | copa cli paste
+# WebSocket → macOS clipboard
+copacli watch -r local --output-cmd pbcopy
+
+# WebSocket → X11 clipboard
+copacli watch -r local --output-cmd 'xsel -ib'
+
+# Watch a specific namespace
+copacli watch -r local --namespace shared
+
+# Without a named remote (direct server URL + token)
+copacli watch --server ws://localhost:8080/ws --token TOKEN
+
+# Tune reconnect backoff (default max: 30s)
+copacli watch -r local --max-backoff 60
 ```
 
-#### System Clipboard Integration
+**Tip:** Run `copacli watch` as a background service or in a tmux window to get automatic clipboard sync whenever anyone pushes to the server.
 
-**macOS:**
-```bash
-# Download to macOS clipboard
-copa cli copy --output-cmd pbcopy
+### Aliases
 
-# Upload from macOS clipboard
-copa cli paste --input-cmd pbpaste
-```
+`copacli down` = `copacli copy`, `copacli up` = `copacli paste`
 
-**Linux X11:**
-```bash
-# Download to X11 clipboard
-copa cli copy --output-cmd 'xsel -ib'
-copa cli copy --output-cmd 'xclip -selection clipboard'
-
-# Upload from X11 clipboard
-copa cli paste --input-cmd 'xsel -ob'
-copa cli paste --input-cmd 'xclip -selection clipboard -o'
-```
-
-**Linux Wayland:**
-```bash
-# Download to Wayland clipboard
-copa cli copy --output-cmd wl-copy
-
-# Upload from Wayland clipboard
-copa cli paste --input-cmd wl-paste
-```
-
-#### Direct Text
+### Using --server / --token directly (no config file)
 
 ```bash
-# Upload literal text
-copa cli paste "hello world"
-copa cli up "quick message"
+copacli copy  --server http://host:8080 --token TOKEN
+copacli paste --server http://host:8080 --token TOKEN "text"
+copacli watch --server ws://host:8080/ws --token TOKEN
 ```
 
-### curl Examples
+## API Reference
 
-```bash
-# Download clipboard
-curl -H "Authorization: Bearer TOKEN" http://localhost:8080/api/clipboard
+All endpoints require a matching token. The namespace is selected via the `X-Copa-Namespace` header (defaults to `"default"` when omitted).
 
-# Upload clipboard
-curl -H "Authorization: Bearer TOKEN" \
-     http://localhost:8080/api/clipboard \
-     -X POST --data "clipboard content"
+### `GET /api/clipboard`
 
-# Upload from file
-curl -H "Authorization: Bearer TOKEN" \
-     http://localhost:8080/api/clipboard \
-     -X POST --data-binary @file.txt
-```
+Returns the current content of the namespace as plain text.
 
-## tmux Integration
-
-### Basic tmux Copy/Paste
-
-By default, tmux uses these keybindings:
-
-- **Enter copy mode:** `Prefix + [`
-- **Start selection:** `Space` (in copy mode)
-- **Copy selection:** `Enter`
-- **Paste buffer:** `Prefix + ]`
-
-### Copy tmux Buffer to Remote
-
-Add to `~/.tmux.conf`:
-
-```tmux
-# Upload tmux buffer to copa remote on Prefix+C
-bind C run-shell "tmux save-buffer - | copa cli paste -i -"
-
-# Alternative: use display-message to show result
-bind C run-shell "tmux save-buffer - | copa cli paste -i - && tmux display-message 'Uploaded to copa'"
-```
-
-### Paste from Remote to tmux Buffer
-
-```tmux
-# Download from copa remote to tmux buffer on Prefix+V
-bind V run-shell "copa cli copy -o - | tmux load-buffer - && tmux paste-buffer"
-
-# Or just load to buffer without pasting
-bind V run-shell "copa cli copy -o - | tmux load-buffer -"
-```
-
-### Combined Copy/Paste Workflow
-
-```tmux
-# Copy selection and upload to remote
-bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "tmux load-buffer - && copa cli paste -i -"
-
-# Download from remote and paste
-bind P run-shell "copa cli copy -o - | tmux load-buffer - && tmux paste-buffer"
-```
-
-### Advanced: Sync on Copy
-
-Auto-upload every time you copy in tmux:
-
-```tmux
-# Sync clipboard on every copy (vi mode)
-bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel \
-  "tmux load-buffer - && copa cli paste -i - 2>/dev/null &"
-
-# Sync clipboard on every copy (emacs mode)
-bind-key -T copy-mode M-w send-keys -X copy-pipe-and-cancel \
-  "tmux load-buffer - && copa cli paste -i - 2>/dev/null &"
-```
-
-### System Clipboard + copa
-
-Bridge tmux, copa, and system clipboard:
-
-**macOS:**
-```tmux
-# Copy to all: tmux buffer, copa remote, and macOS clipboard
-bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel \
-  "tee >(tmux load-buffer -) >(copa cli paste -i - 2>/dev/null &) | pbcopy"
-
-# Paste from system clipboard via copa
-bind P run-shell "pbpaste | copa cli paste -i - && copa cli copy -o - | tmux load-buffer - && tmux paste-buffer"
-```
-
-**Linux X11:**
-```tmux
-# Copy to all: tmux buffer, copa remote, and X11 clipboard
-bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel \
-  "tee >(tmux load-buffer -) >(copa cli paste -i - 2>/dev/null &) | xsel -ib"
-
-# Paste from X11 clipboard via copa
-bind P run-shell "xsel -ob | copa cli paste -i - && copa cli copy -o - | tmux load-buffer - && tmux paste-buffer"
-```
-
-### Recommended Setup
-
-Add to `~/.tmux.conf` for the best experience:
-
-```tmux
-# Upload tmux buffer to copa (Prefix + Shift+C)
-bind C run-shell "tmux save-buffer - | copa cli paste -i - && tmux display-message '✓ Uploaded to copa'"
-
-# Download from copa to tmux buffer and paste (Prefix + Shift+V)
-bind V run-shell "copa cli copy -o - | tmux load-buffer - && tmux paste-buffer && tmux display-message '✓ Downloaded from copa'"
-
-# Auto-sync on copy (vi copy mode)
-bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel \
-  "tmux load-buffer - && (copa cli paste -i - 2>/dev/null &)"
-```
-
-Reload config: `tmux source-file ~/.tmux.conf`
-
-## API Endpoints
-
-### `/api/clipboard`
-
-**GET** — Retrieve clipboard content (plain text)
-```bash
-curl -H "Authorization: Bearer TOKEN" http://localhost:8080/api/clipboard
-```
-
-**POST** — Store clipboard content (plain text)
 ```bash
 curl -H "Authorization: Bearer TOKEN" \
-     -X POST --data "content" \
+     -H "X-Copa-Namespace: default" \
      http://localhost:8080/api/clipboard
 ```
 
-### `/api/buffer`
+Required token permission: read or rw.
 
-**GET** — Retrieve tmux buffer (JSON)
-```bash
-curl -H "Authorization: Bearer TOKEN" http://localhost:8080/api/buffer
-# Response: {"content":"buffer text"}
-```
+### `POST /api/clipboard`
 
-**POST** — Set tmux buffer (plain text body)
+Stores new content and broadcasts it to all WebSocket subscribers of that namespace.
+
 ```bash
 curl -H "Authorization: Bearer TOKEN" \
-     -X POST --data "buffer content" \
-     http://localhost:8080/api/buffer
+     -H "X-Copa-Namespace: default" \
+     -X POST --data "content" \
+     http://localhost:8080/api/clipboard
+
+# From file
+curl -H "Authorization: Bearer TOKEN" \
+     -X POST --data-binary @file.txt \
+     http://localhost:8080/api/clipboard
+```
+
+Returns `ok` (200), `unauthorized` (401), `namespace not found` (404), or `content too large` (413).
+
+Required token permission: write or rw.
+
+### `GET /ws` — WebSocket
+
+Subscribe to real-time updates for a namespace.
+
+**Auth and namespace** can be passed as headers during the HTTP upgrade:
+
+```
+Authorization: Bearer TOKEN
+X-Copa-Namespace: default
+```
+
+Or as query parameters (for clients that cannot set headers during upgrade):
+
+```
+ws://host:8080/ws?token=TOKEN&namespace=default
+```
+
+**Protocol:** plain UTF-8 text frames.
+
+- On connect: server sends the current namespace content immediately.
+- On any POST to the namespace: server broadcasts the new content to all connected subscribers.
+- Clients with write permission can also send frames to update the namespace (other subscribers receive the update).
+
+```bash
+# Requires websocat
+websocat "ws://localhost:8080/ws?token=TOKEN&namespace=default"
 ```
 
 ## Web UI
 
-The web UI provides:
+Open `http://host:8080/` in a browser.
 
-- **Paste Buffer** — View/edit tmux buffer with push/pull/copy/clear actions
-- **Server Clipboard** — View/edit server clipboard with push/pull/copy/clear actions
-- **Auto-pull** — Configurable auto-refresh (2/5/10/30 seconds)
-- **Shareable Link** — Token-embedded URL for easy sharing
-- **Theme Switcher** — Light/Dark/Auto modes
+- **Namespace selector** — switch between namespaces; each uses its own token
+- **Pull / Push** — one-shot fetch or store
+- **Live** checkbox — opens a WebSocket subscription; textarea updates instantly on every server-side change
+- **Direct sync** — copy/paste via browser Clipboard API
+- **Auto-pull** — polling fallback (2 / 5 / 10 / 30 s intervals)
+- **Servers panel** — manage multiple `copasrv` instances stored in IndexedDB
+- **Shareable link** — `#token=…&url=…` fragment that never reaches server logs
+
+## tmux Integration
+
+### Persistent auto-sync (recommended)
+
+Run `copacli watch` in a background tmux window. Every time content is pushed to the server by any client, it lands in your local tmux buffer automatically.
+
+```bash
+# In a dedicated tmux window
+copacli watch -r local
+```
+
+You can also start it as a background process:
+```bash
+copacli watch -r local &>/tmp/copacli-watch.log &
+```
+
+### One-shot tmux keybindings
+
+Add to `~/.tmux.conf`:
+
+```tmux
+# Upload tmux buffer → copa (Prefix + Shift+C)
+bind C run-shell "tmux save-buffer - | copacli paste -r local -i - && tmux display-message '✓ Uploaded'"
+
+# Download copa → tmux buffer + paste (Prefix + Shift+V)
+bind V run-shell "copacli copy -r local -o - | tmux load-buffer - && tmux paste-buffer && tmux display-message '✓ Downloaded'"
+
+# Auto-sync on vi-mode copy
+bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel \
+  "tmux load-buffer - && (copacli paste -r local -i - 2>/dev/null &)"
+```
+
+Reload: `tmux source-file ~/.tmux.conf`
+
+### System clipboard + copa
+
+**macOS:**
+```tmux
+# Copy → tmux buffer + copa + macOS clipboard
+bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel \
+  "tee >(tmux load-buffer -) >(copacli paste -r local -i - 2>/dev/null &) | pbcopy"
+```
+
+**Linux X11:**
+```tmux
+bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel \
+  "tee >(tmux load-buffer -) >(copacli paste -r local -i - 2>/dev/null &) | xsel -ib"
+```
 
 ## Security
 
-- Tokens are stored in URL fragments (`#token=...`) — never sent to server logs
-- Use HTTPS in production
-- Bind to `127.0.0.1` for local-only access
-- Use `--bind 0.0.0.0` only when needed and combine with firewall rules
-- Rotate tokens regularly using `copa --generate-token`
+- Tokens live in URL fragments (`#token=…`) — never in server logs
+- Separate read / write tokens let you share read access without granting write access
+- Default bind address is `127.0.0.1`; use `--bind 0.0.0.0` only when needed
+- Use HTTPS (e.g. behind nginx) in production
+- Per-namespace size limits prevent memory exhaustion (default 16 KB)
+- Rotate tokens with `copasrv --generate-token`
 
 ## Development
 
@@ -370,15 +376,15 @@ cargo build
 cargo build --release
 
 # Run server in dev
-cargo run -- serve --port 8080
+cargo run --bin copasrv
 
-# Run CLI in dev
-cargo run -- cli paste "test"
+# Run client in dev
+cargo run --bin copacli -- paste -r local "test"
 
-# Check code
+# Check
 cargo check
 
-# Run tests
+# Tests
 cargo test
 ```
 
@@ -386,37 +392,36 @@ cargo test
 
 **"no remote specified and no default_remote in config"**
 
-Ensure `[cli]` section exists with `default_remote` and remotes:
-
+Add to `~/.config/copa/config.toml`:
 ```toml
 [cli]
 default_remote = "local"
 
 [cli.remotes.local]
-url = "http://127.0.0.1:8080"
+url   = "http://127.0.0.1:8080"
 token = "your-token"
 ```
 
+**401 Unauthorized**
+
+The token in the request does not match any token for the target namespace. Check that the token matches `rw_token`, `read_token`, or `write_token` in the server config.
+
+**404 Namespace not found**
+
+The `X-Copa-Namespace` header names a namespace that does not exist on the server.
+
+**413 Content Too Large**
+
+The body exceeds the namespace `size_limit`. Increase it in the server config or use a different namespace.
+
 **"no buffers" from tmux**
 
-Your tmux session has no buffer. Copy something in tmux first (`Prefix + [`, select, `Enter`).
+Nothing has been copied in tmux yet. Enter copy mode (`Prefix + [`), select text, press Enter.
 
-**Token auth fails**
+**copacli watch keeps reconnecting**
 
-Check token matches between server and remote config. Use `copa --generate-token` for a fresh token.
-
-**tmux socket not found**
-
-Specify explicitly:
-```bash
-copa serve --socket /tmp/tmux-1000/default
-copa cli paste --socket /tmp/tmux-1000/default
-```
+The server is unreachable or the token is wrong. Check `copasrv` is running and the token matches.
 
 ## License
 
 MIT
-
-## Author
-
-Created for seamless clipboard sync across tmux sessions, remote machines, and system clipboards.
