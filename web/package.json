@@ -1,0 +1,22 @@
+{
+  "name": "copa-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "icons": "../generate-icons.sh"
+  },
+  "dependencies": {
+    "preact": "^10.25.4",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.9.1",
+    "@types/qrcode": "^1.5.5",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.4"
+  },
+  "packageManager": "yarn@4.14.1"
+}

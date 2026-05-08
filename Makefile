@@ -1,6 +1,6 @@
 PREFIX ?= ~
 
-.PHONY: all help build release clean install uninstall tray-windows tray-windows-setup
+.PHONY: all help build release clean install uninstall tray-windows tray-windows-setup build-web dev-web clean-web build-all release-all deploy-docs
 
 all: help
 
@@ -20,6 +20,11 @@ help:
 	@echo "  \033[32muninstall\033[0m           Remove binaries from \033[33m$(PREFIX)/bin\033[0m"
 	@echo "  \033[32mtray-windows\033[0m        Cross-compile Windows tray client (.exe)"
 	@echo "  \033[32mtray-windows-setup\033[0m  Install cross-compilation toolchain for Windows"
+	@echo "  \033[32mbuild-web\033[0m           Build frontend (requires yarn v4)"
+	@echo "  \033[32mdev-web\033[0m             Start frontend dev server"
+	@echo "  \033[32mbuild-all\033[0m           Build frontend + Rust debug"
+	@echo "  \033[32mrelease-all\033[0m         Build frontend + Rust release"
+	@echo "  \033[32mdeploy-docs\033[0m         Build frontend and publish to docs/app/"
 	@echo ""
 
 build:
@@ -31,10 +36,32 @@ release:
 clean:
 	cargo clean
 
+build-web:
+	cd web && yarn install && yarn build
+
+dev-web:
+	cd web && yarn install && yarn dev
+
+clean-web:
+	rm -rf web/dist web/node_modules
+
+build-all: build-web build
+
+release-all: build-web release
+
+deploy-docs: build-web
+	rm -rf docs/app/*
+	cp -r web/dist/. docs/app/
+
 install: release
 	install -d $(PREFIX)/bin
 	install -m 755 target/release/copasrv  $(PREFIX)/bin/copasrv
 	install -m 755 target/release/copacli  $(PREFIX)/bin/copacli
+	@if [ -d web/dist ]; then \
+	  install -d $(PREFIX)/share/copa; \
+	  cp -r web/dist $(PREFIX)/share/copa/; \
+	  echo "frontend installed to $(PREFIX)/share/copa/dist"; \
+	fi
 
 uninstall:
 	rm -f $(PREFIX)/bin/copasrv $(PREFIX)/bin/copacli

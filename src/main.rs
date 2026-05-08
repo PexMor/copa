@@ -17,6 +17,7 @@ use serde::Deserialize;
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::sync::{broadcast, RwLock};
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -323,25 +324,33 @@ async fn handler_manifest() -> impl IntoResponse {
 
 // ── Server runner ─────────────────────────────────────────────────────────────
 
-async fn run_server(port: u16, bind: String, state: Arc<AppState>) {
+async fn run_server(port: u16, bind: String, state: Arc<AppState>, static_dir: Option<PathBuf>) {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_headers(Any)
         .allow_methods(Any);
 
-    let app = Router::new()
-        .route("/",              get(handler_ui))
-        .route("/icon.svg",      get(handler_icon))
-        .route("/manifest.json", get(handler_manifest))
+    let api = Router::new()
         .route("/api/clipboard", get(handle_get).post(handle_post))
         .route("/ws",            get(handle_ws_upgrade))
-        .with_state(state)
-        .layer(cors);
+        .with_state(state);
+
+    let app = if let Some(dir) = static_dir {
+        if !dir.is_dir() {
+            eprintln!("error: --static-dir '{}' is not a directory", dir.display());
+            std::process::exit(1);
+        }
+        api.fallback_service(ServeDir::new(&dir))
+    } else {
+        api.route("/",              get(handler_ui))
+           .route("/icon.svg",      get(handler_icon))
+           .route("/manifest.json", get(handler_manifest))
+    };
 
     let addr: SocketAddr = format!("{bind}:{port}").parse().expect("bad addr");
     eprintln!("listening on http://{addr}");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind failed");
-    axum::serve(listener, app).await.expect("server error");
+    axum::serve(listener, app.layer(cors)).await.expect("server error");
 }
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
@@ -362,6 +371,9 @@ struct Cli {
     /// Legacy: sets the rw_token for the auto-created "default" namespace.
     #[arg(short, long, env = "COPA_TOKEN")]
     token: Option<String>,
+    /// Serve static files from this directory instead of the embedded UI. Env: COPA_STATIC_DIR
+    #[arg(long, env = "COPA_STATIC_DIR")]
+    static_dir: Option<PathBuf>,
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -392,5 +404,5 @@ async fn main() {
     };
 
     let state = build_app_state(&effective_srv, port, &bind);
-    run_server(port, bind, state).await;
+    run_server(port, bind, state, cli.static_dir).await;
 }
