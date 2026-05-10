@@ -5,7 +5,7 @@ import { publishMqtt } from '../utils/mqttPublish';
 const FORMAT_OPTIONS: { value: GpsFormat; label: string; url: (p: GpsPosition) => string }[] = [
   { value: 'geo',    label: 'geo: URI',       url: (p) => `geo:${p.lat},${p.lon}` },
   { value: 'google', label: 'Google Maps',    url: (p) => `https://maps.google.com/?q=${p.lat},${p.lon}` },
-  { value: 'mapycz', label: 'Mapy.cz',        url: (p) => `https://mapy.cz/zakladni?x=${p.lon}&y=${p.lat}` },
+  { value: 'mapycz', label: 'Mapy.cz',        url: (p) => `https://mapy.com/cs/?source=coor&id=${p.lon}%2C${p.lat}&x=${p.lon}&y=${p.lat}&z=16` },
   { value: 'apple',  label: 'Apple Maps',     url: (p) => `https://maps.apple.com/?q=${p.lat},${p.lon}` },
   { value: 'osm',    label: 'OpenStreetMap',  url: (p) => `https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lon}` },
 ];

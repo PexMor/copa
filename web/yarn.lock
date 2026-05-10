@@ -759,6 +759,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/offscreencanvas@npm:^2019.6.4":
+  version: 2019.7.3
+  resolution: "@types/offscreencanvas@npm:2019.7.3"
+  checksum: 10c0/6d1dfae721d321cd2b5435f347a0e53b09f33b2f9e9333396480f592823bc323847b8169f7d251d2285cb93dbc1ba2e30741ac5cf4b1c003d660fd4c24526963
+  languageName: node
+  linkType: hard
+
 "@types/qrcode@npm:^1.5.5":
   version: 1.5.6
   resolution: "@types/qrcode@npm:1.5.6"
@@ -989,6 +996,7 @@ __metadata:
     mqtt: "npm:^5.15.1"
     playwright: "npm:^1.59.1"
     preact: "npm:^10.25.4"
+    qr-scanner: "npm:^1.4.2"
     qrcode: "npm:^1.5.4"
     typescript: "npm:^5.8.3"
     vite: "npm:^6.3.4"
@@ -1711,6 +1719,15 @@ __metadata:
   version: 0.11.10
   resolution: "process@npm:0.11.10"
   checksum: 10c0/40c3ce4b7e6d4b8c3355479df77aeed46f81b279818ccdc500124e6a5ab882c0cc81ff7ea16384873a95a74c4570b01b120f287abbdd4c877931460eca6084b3
+  languageName: node
+  linkType: hard
+
+"qr-scanner@npm:^1.4.2":
+  version: 1.4.2
+  resolution: "qr-scanner@npm:1.4.2"
+  dependencies:
+    "@types/offscreencanvas": "npm:^2019.6.4"
+  checksum: 10c0/32ac53d6f5c9045e1464d6b110eb19d3f8865f72276d26f00f6cc1e1d239ce34c799824a3082c775236cf887cf4354b2c292c89a08fd25378ab2c68472346970
   languageName: node
   linkType: hard
 

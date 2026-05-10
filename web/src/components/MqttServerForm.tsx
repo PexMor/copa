@@ -2,6 +2,8 @@ import { useState } from 'preact/hooks';
 import type { MqttServer } from '../types';
 import { generateKey, keyToBase58 } from '../utils/crypto';
 import { publishMqtt } from '../utils/mqttPublish';
+import { QRScanner } from './QRScanner';
+import { KeyQRModal } from './KeyQRModal';
 
 interface Props {
   initial?: MqttServer;
@@ -23,6 +25,8 @@ export function MqttServerForm({ initial, onSave, onCancel }: Props) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState('');
   const [keyCopied, setKeyCopied] = useState(false);
+  const [showKeyQR, setShowKeyQR] = useState(false);
+  const [scanningKey, setScanningKey] = useState(false);
 
   const handleGenerate = () => setAesKey(generateKey());
 
@@ -112,6 +116,7 @@ export function MqttServerForm({ initial, onSave, onCancel }: Props) {
           />
           <button class="btn-sm" type="button" onClick={handleGenerate} title="Generate random key">Generate</button>
           <button class="btn-sm" type="button" onClick={handleGenerateAndShare} title="Generate a new key and copy as Base58">{keyCopied ? 'Copied!' : 'Gen & Share'}</button>
+          <button class="btn-sm" type="button" onClick={() => setScanningKey(true)} title="Scan AES key from a QR code">Scan QR</button>
         </div>
         {base58Preview && (
           <div class="key-share-row">
@@ -123,6 +128,14 @@ export function MqttServerForm({ initial, onSave, onCancel }: Props) {
               title="Copy Base58 key to clipboard"
             >
               {keyCopied ? 'Copied!' : 'Copy Base58'}
+            </button>
+            <button
+              class="btn-sm"
+              type="button"
+              onClick={() => setShowKeyQR(true)}
+              title="Show key as QR code for peer to scan"
+            >
+              Show QR
             </button>
           </div>
         )}
@@ -148,6 +161,15 @@ export function MqttServerForm({ initial, onSave, onCancel }: Props) {
         <button class="btn-sm" onClick={onCancel}>Cancel</button>
       </div>
       {testResult && <p class={testResult.startsWith('✓') ? 'ok' : 'err'}>{testResult}</p>}
+      {showKeyQR && base58Preview && (
+        <KeyQRModal keyStr={base58Preview} onClose={() => setShowKeyQR(false)} />
+      )}
+      {scanningKey && (
+        <QRScanner
+          onScan={(text) => { setAesKey(text.trim()); setScanningKey(false); }}
+          onClose={() => setScanningKey(false)}
+        />
+      )}
     </div>
   );
 }

@@ -11,6 +11,7 @@
   "dependencies": {
     "mqtt": "^5.15.1",
     "preact": "^10.25.4",
+    "qr-scanner": "^1.4.2",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

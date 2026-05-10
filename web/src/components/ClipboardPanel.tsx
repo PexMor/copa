@@ -4,6 +4,7 @@ import { useClipboard } from '../hooks/useClipboard';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useMqtt } from '../hooks/useMqtt';
 import { QRDisplay } from './QRDisplay';
+import { QRScanner } from './QRScanner';
 
 const POLL_OPTIONS = [
   { label: '2s', ms: 2000 },
@@ -36,6 +37,8 @@ export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, 
   const [liveEnabled, setLiveEnabled] = useState(false);
   const [pollInterval, setPollInterval] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [autoSendOnScan, setAutoSendOnScan] = useState(false);
 
   const handleMqttMessage = (text: string) => {
     setMqttContent(text);
@@ -121,6 +124,23 @@ export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, 
     }
   };
 
+  const handleScan = async (text: string) => {
+    setContent(text);
+    if (autoSendOnScan && server) {
+      if (isMqtt) {
+        if (!mqttServer?.aesKey) { onToast('Set an AES key in server settings first', 'err'); return; }
+        const result = await mqttPublish(text);
+        if (result.error) onToast(result.error, 'err');
+        else { setMqttLastSync(new Date()); onToast('Scanned & published', 'ok'); }
+      } else {
+        await push();
+        onToast('Scanned & pushed', 'ok');
+      }
+    } else {
+      onToast('Scanned', '');
+    }
+  };
+
   const noKey = isMqtt && !mqttServer?.aesKey;
 
   return (
@@ -172,6 +192,11 @@ export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, 
           <button class="btn-sm" onClick={copyLocal}>Copy</button>
           <button class="btn-sm" onClick={pasteLocal}>Paste</button>
           <button class="btn-sm" onClick={() => setContent('')}>Clear</button>
+          <button class="btn-sm" onClick={() => setScanning(true)}>Scan QR</button>
+          <label class="scan-toggle" title="Send scanned content immediately">
+            <input type="checkbox" checked={autoSendOnScan} onChange={(e) => setAutoSendOnScan((e.target as HTMLInputElement).checked)} />
+            Auto-send
+          </label>
         </div>
 
         <div class="sync-row">
@@ -208,6 +233,7 @@ export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, 
       </div>
 
       <QRDisplay content={content} />
+      {scanning && <QRScanner onScan={handleScan} onClose={() => setScanning(false)} />}
     </div>
   );
 }

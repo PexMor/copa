@@ -455,6 +455,7 @@ button:hover:not(:disabled) { opacity: .85; }
   display: flex;
   gap: .4rem;
   align-items: stretch;
+  flex-wrap: wrap;
 }
 
 .key-row .key-input {
@@ -490,6 +491,63 @@ button:hover:not(:disabled) { opacity: .85; }
 
 .key-hint {
   margin: .25rem 0 0;
+}
+
+/* ── QR Scanner / Key QR modal ─────────────────────────────────────── */
+.scanner-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+}
+
+.scanner-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .75rem;
+  width: min(420px, calc(100vw - 2rem));
+}
+
+.scanner-label {
+  font-size: .8rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.scanner-video {
+  width: 100%;
+  border-radius: 8px;
+  background: #000;
+}
+
+.key-qr-canvas {
+  border-radius: 8px;
+  max-width: 100%;
+}
+
+.scan-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  padding: .3rem .4rem;
+  user-select: none;
+}
+
+.scan-toggle input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 /* ── Utilities ──────────────────────────────────────────────────────── */
