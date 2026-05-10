@@ -1,16 +1,16 @@
 import { useCallback, useState } from 'preact/hooks';
-import type { Server } from '../types';
+import type { CopaServer } from '../types';
 
 type Status = 'idle' | 'ok' | 'error';
 
-function apiHeaders(server: Server, namespace: string): HeadersInit {
+function apiHeaders(server: CopaServer, namespace: string): HeadersInit {
   return {
     'Authorization': `Bearer ${server.token}`,
     'X-Copa-Namespace': namespace,
   };
 }
 
-export function useClipboard(server: Server | null, namespace: string) {
+export function useClipboard(server: CopaServer | null, namespace: string) {
   const [content, setContent] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [lastSync, setLastSync] = useState<Date | null>(null);

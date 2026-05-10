@@ -12,9 +12,9 @@
 // target pixel size so the browser rasterizes the emoji at native resolution
 // instead of upscaling a small bitmap.
 
-const { chromium } = require('playwright');
-const fs = require('fs');
-const path = require('path');
+import { chromium } from 'playwright';
+import fs from 'fs';
+import path from 'path';
 
 // Below this output size, emoji is scaled down and centered to avoid clipping.
 const EMOJI_INSET_THRESHOLD = 48;

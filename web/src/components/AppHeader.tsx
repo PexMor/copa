@@ -1,9 +1,9 @@
-import type { Server, Theme } from '../types';
+import type { AnyServer, Theme } from '../types';
 import { ThemeToggle } from './ThemeToggle';
 import type { WsStatus } from '../hooks/useWebSocket';
 
 interface Props {
-  activeServer: Server | null;
+  activeServer: AnyServer | null;
   theme: Theme;
   setTheme: (t: Theme) => void;
   wsStatus: WsStatus | 'off';

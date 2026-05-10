@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { Server } from '../types';
+import type { AnyServer, CopaServer, MqttServer } from '../types';
 import { useClipboard } from '../hooks/useClipboard';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useMqtt } from '../hooks/useMqtt';
 import { QRDisplay } from './QRDisplay';
 
 const POLL_OPTIONS = [
@@ -12,7 +13,7 @@ const POLL_OPTIONS = [
 ];
 
 interface Props {
-  server: Server | null;
+  server: AnyServer | null;
   namespace: string;
   onNamespaceChange: (ns: string) => void;
   onToast: (text: string, type: 'ok' | 'err' | '') => void;
@@ -20,40 +21,76 @@ interface Props {
 }
 
 export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, onWsStatus }: Props) {
-  const { content, setContent, pull, push, status, lastSync } = useClipboard(server, namespace);
+  const isMqtt = server?.type === 'mqtt';
+  const copaServer = isMqtt ? null : (server as CopaServer | null);
+  const mqttServer = isMqtt ? (server as MqttServer) : null;
+
+  const { content: copaContent, setContent: setCopaContent, pull, push, status: clipStatus, lastSync: copaLastSync } = useClipboard(copaServer, namespace);
+  const [mqttContent, setMqttContent] = useState('');
+  const [mqttLastSync, setMqttLastSync] = useState<Date | null>(null);
+
+  const content = isMqtt ? mqttContent : copaContent;
+  const setContent = isMqtt ? setMqttContent : setCopaContent;
+  const lastSync = isMqtt ? mqttLastSync : copaLastSync;
+
   const [liveEnabled, setLiveEnabled] = useState(false);
   const [pollInterval, setPollInterval] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const { status: wsStatus, disconnect } = useWebSocket({
-    server,
+  const handleMqttMessage = (text: string) => {
+    setMqttContent(text);
+    setMqttLastSync(new Date());
+  };
+
+  const { status: wsStatus, disconnect: wsDisconnect } = useWebSocket({
+    server: copaServer,
     namespace,
-    enabled: liveEnabled,
-    onMessage: (text) => setContent(text),
+    enabled: liveEnabled && !isMqtt,
+    onMessage: (text) => setCopaContent(text),
   });
 
+  const { status: mqttStatus, disconnect: mqttDisconnect, publish: mqttPublish } = useMqtt({
+    server: mqttServer,
+    enabled: liveEnabled && isMqtt,
+    onMessage: handleMqttMessage,
+  });
+
+  const liveStatus = isMqtt ? mqttStatus : wsStatus;
+
+  // Auto-enable live mode when switching to MQTT server
   useEffect(() => {
-    onWsStatus(liveEnabled ? wsStatus : 'off');
-  }, [liveEnabled, wsStatus, onWsStatus]);
+    if (isMqtt) setLiveEnabled(true);
+  }, [isMqtt]);
+
+  useEffect(() => {
+    onWsStatus(liveEnabled ? liveStatus : 'off');
+  }, [liveEnabled, liveStatus, onWsStatus]);
 
   useEffect(() => {
     if (pollRef.current) clearInterval(pollRef.current);
-    if (pollInterval && server) {
+    if (pollInterval && copaServer) {
       pollRef.current = setInterval(() => pull(true), pollInterval);
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [pollInterval, server, namespace]);
+  }, [pollInterval, copaServer, namespace]);
 
   const handlePull = async () => {
     await pull();
-    if (status === 'error') onToast('Pull failed', 'err');
+    if (clipStatus === 'error') onToast('Pull failed', 'err');
     else onToast('Pulled', 'ok');
   };
 
   const handlePush = async () => {
-    await push();
-    if (status === 'error') onToast('Push failed', 'err');
-    else onToast('Pushed', 'ok');
+    if (isMqtt) {
+      if (!mqttServer?.aesKey) { onToast('Set an AES key in server settings first', 'err'); return; }
+      const result = await mqttPublish(content);
+      if (result.error) onToast(result.error, 'err');
+      else { setMqttLastSync(new Date()); onToast('Published', 'ok'); }
+    } else {
+      await push();
+      if (clipStatus === 'error') onToast('Push failed', 'err');
+      else onToast('Pushed', 'ok');
+    }
   };
 
   const copyLocal = async () => {
@@ -76,37 +113,57 @@ export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, 
   };
 
   const toggleLive = () => {
-    if (liveEnabled) { disconnect(); setLiveEnabled(false); }
-    else { setLiveEnabled(true); }
+    if (liveEnabled) {
+      isMqtt ? mqttDisconnect() : wsDisconnect();
+      setLiveEnabled(false);
+    } else {
+      setLiveEnabled(true);
+    }
   };
+
+  const noKey = isMqtt && !mqttServer?.aesKey;
 
   return (
     <div class="card">
       <div class="panel-top">
-        <div class="ns-row">
-          <input
-            class="ns-input"
-            list="ns-list"
-            value={namespace}
-            onInput={(e) => onNamespaceChange((e.target as HTMLInputElement).value)}
-            placeholder="namespace"
-            aria-label="Namespace"
-          />
-          <datalist id="ns-list">
-            <option value="default" />
-          </datalist>
-        </div>
+        {isMqtt ? (
+          <div class="ns-row">
+            <span class="topic-chip" title="MQTT topic">
+              {mqttServer?.topic ?? '—'}
+            </span>
+          </div>
+        ) : (
+          <div class="ns-row">
+            <input
+              class="ns-input"
+              list="ns-list"
+              value={namespace}
+              onInput={(e) => onNamespaceChange((e.target as HTMLInputElement).value)}
+              placeholder="namespace"
+              aria-label="Namespace"
+            />
+            <datalist id="ns-list">
+              <option value="default" />
+            </datalist>
+          </div>
+        )}
         <div class="panel-actions">
-          <button class="btn" onClick={handlePull} disabled={!server}>Pull</button>
-          <button class="btn" onClick={handlePush} disabled={!server}>Push</button>
+          {!isMqtt && <button class="btn" onClick={handlePull} disabled={!server}>Pull</button>}
+          <button class="btn" onClick={handlePush} disabled={!server || noKey} title={noKey ? 'Configure an AES key first' : undefined}>
+            {isMqtt ? 'Publish' : 'Push'}
+          </button>
         </div>
       </div>
+
+      {noKey && (
+        <p class="key-warning">No AES key — open Server settings to generate one before publishing.</p>
+      )}
 
       <textarea
         class="clipboard-area"
         value={content}
         onInput={(e) => setContent((e.target as HTMLTextAreaElement).value)}
-        placeholder={server ? 'Clipboard content…' : 'Add a server to get started'}
+        placeholder={server ? (isMqtt ? 'Messages received via MQTT will appear here…' : 'Clipboard content…') : 'Add a server to get started'}
         rows={8}
       />
 
@@ -122,25 +179,27 @@ export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, 
             class={`btn-sm${liveEnabled ? ' active' : ''}`}
             onClick={toggleLive}
             disabled={!server}
-            title="WebSocket live mode"
+            title={isMqtt ? 'MQTT subscription' : 'WebSocket live mode'}
           >
             Live
           </button>
 
-          <select
-            value={pollInterval ?? ''}
-            onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value;
-              setPollInterval(v ? Number(v) : null);
-            }}
-            disabled={!server}
-            aria-label="Auto-pull interval"
-          >
-            <option value="">No auto-pull</option>
-            {POLL_OPTIONS.map(({ label, ms }) => (
-              <option key={ms} value={ms}>{label}</option>
-            ))}
-          </select>
+          {!isMqtt && (
+            <select
+              value={pollInterval ?? ''}
+              onChange={(e) => {
+                const v = (e.target as HTMLSelectElement).value;
+                setPollInterval(v ? Number(v) : null);
+              }}
+              disabled={!server}
+              aria-label="Auto-pull interval"
+            >
+              <option value="">No auto-pull</option>
+              {POLL_OPTIONS.map(({ label, ms }) => (
+                <option key={ms} value={ms}>{label}</option>
+              ))}
+            </select>
+          )}
         </div>
 
         {lastSync && (

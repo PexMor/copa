@@ -1,7 +1,7 @@
-import type { Server } from '../types';
+import type { CopaServer } from '../types';
 
 interface Props {
-  server: Server | null;
+  server: CopaServer | null;
   onToast: (text: string, type: 'ok' | 'err' | '') => void;
 }
 

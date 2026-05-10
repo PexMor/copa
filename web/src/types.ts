@@ -1,9 +1,26 @@
-export interface Server {
+export interface CopaServer {
   id: string;
   name: string;
+  type: 'copa';
   url: string;
   token: string;
 }
+
+export interface MqttServer {
+  id: string;
+  name: string;
+  type: 'mqtt';
+  brokerUrl: string;
+  topic: string;
+  aesKey: string;
+  maxMessageSize: number;
+  clientId?: string;
+}
+
+export type AnyServer = CopaServer | MqttServer;
+
+/** @deprecated Use AnyServer */
+export type Server = CopaServer;
 
 export type Theme = 'light' | 'auto' | 'dark';
 

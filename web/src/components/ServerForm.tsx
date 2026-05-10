@@ -1,9 +1,10 @@
 import { useState } from 'preact/hooks';
-import type { Server } from '../types';
+import type { AnyServer, CopaServer } from '../types';
+import { MqttServerForm } from './MqttServerForm';
 
 interface Props {
-  initial?: Server;
-  onSave: (s: Server) => void;
+  initial?: AnyServer;
+  onSave: (s: AnyServer) => void;
   onCancel: () => void;
 }
 
@@ -11,7 +12,7 @@ function randomId() {
   return Math.random().toString(36).slice(2);
 }
 
-export function ServerForm({ initial, onSave, onCancel }: Props) {
+function CopaForm({ initial, onSave, onCancel }: { initial?: CopaServer; onSave: (s: CopaServer) => void; onCancel: () => void }) {
   const [name, setName] = useState(initial?.name ?? '');
   const [url, setUrl] = useState(initial?.url ?? '');
   const [token, setToken] = useState(initial?.token ?? '');
@@ -35,7 +36,7 @@ export function ServerForm({ initial, onSave, onCancel }: Props) {
 
   const save = () => {
     if (!name.trim() || !url.trim() || !token.trim()) return;
-    onSave({ id: initial?.id ?? randomId(), name: name.trim(), url: url.trim().replace(/\/$/, ''), token: token.trim() });
+    onSave({ id: initial?.id ?? randomId(), name: name.trim(), type: 'copa', url: url.trim().replace(/\/$/, ''), token: token.trim() });
   };
 
   return (
@@ -60,5 +61,38 @@ export function ServerForm({ initial, onSave, onCancel }: Props) {
       </div>
       {testResult && <p class={testResult.startsWith('✓') ? 'ok' : 'err'}>{testResult}</p>}
     </div>
+  );
+}
+
+export function ServerForm({ initial, onSave, onCancel }: Props) {
+  const [serverType, setServerType] = useState<'copa' | 'mqtt'>(initial?.type ?? 'copa');
+
+  if (initial) {
+    if (initial.type === 'mqtt') {
+      return <MqttServerForm initial={initial} onSave={onSave} onCancel={onCancel} />;
+    }
+    return <CopaForm initial={initial} onSave={onSave} onCancel={onCancel} />;
+  }
+
+  return (
+    <>
+      <div class="server-type-toggle">
+        <button
+          class={`btn-sm${serverType === 'copa' ? ' active' : ''}`}
+          onClick={() => setServerType('copa')}
+        >
+          Copa Server
+        </button>
+        <button
+          class={`btn-sm${serverType === 'mqtt' ? ' active' : ''}`}
+          onClick={() => setServerType('mqtt')}
+        >
+          MQTT Broker
+        </button>
+      </div>
+      {serverType === 'copa'
+        ? <CopaForm onSave={onSave} onCancel={onCancel} />
+        : <MqttServerForm onSave={onSave} onCancel={onCancel} />}
+    </>
   );
 }

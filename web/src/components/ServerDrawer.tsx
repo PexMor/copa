@@ -1,23 +1,30 @@
 import { useState } from 'preact/hooks';
-import type { Server } from '../types';
+import type { AnyServer } from '../types';
 import { ServerForm } from './ServerForm';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  servers: Server[];
+  servers: AnyServer[];
   activeId: string | undefined;
-  onActivate: (s: Server) => void;
-  onSave: (s: Server) => void;
+  onActivate: (s: AnyServer) => void;
+  onSave: (s: AnyServer) => void;
   onDelete: (id: string) => void;
 }
 
+function serverSubtitle(s: AnyServer): string {
+  if (s.type === 'mqtt') {
+    try { return new URL(s.brokerUrl).host; } catch { return s.brokerUrl; }
+  }
+  try { return new URL(s.url).host; } catch { return s.url; }
+}
+
 export function ServerDrawer({ open, onClose, servers, activeId, onActivate, onSave, onDelete }: Props) {
-  const [editing, setEditing] = useState<Server | null | 'new'>(null);
+  const [editing, setEditing] = useState<AnyServer | null | 'new'>(null);
 
   if (!open) return null;
 
-  const handleSave = (s: Server) => {
+  const handleSave = (s: AnyServer) => {
     onSave(s);
     setEditing(null);
   };
@@ -38,7 +45,8 @@ export function ServerDrawer({ open, onClose, servers, activeId, onActivate, onS
                 <li key={s.id} class={s.id === activeId ? 'active' : ''}>
                   <button class="server-name" onClick={() => { onActivate(s); onClose(); }}>
                     {s.name}
-                    <span class="muted"> {new URL(s.url).host}</span>
+                    <span class="muted"> {serverSubtitle(s)}</span>
+                    {s.type === 'mqtt' && <span class="server-badge">MQTT</span>}
                   </button>
                   <div class="server-meta-actions">
                     <button class="btn-sm" onClick={() => setEditing(s)}>Edit</button>

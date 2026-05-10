@@ -1,0 +1,15 @@
+{
+  "defaults": {
+    "mqttServers": [
+      {
+        "id": "emqx-public",
+        "name": "EMQX Public Broker",
+        "type": "mqtt",
+        "brokerUrl": "wss://broker.emqx.io:8084/mqtt",
+        "topic": "copa/clipboard/default",
+        "aesKey": "",
+        "maxMessageSize": 65535
+      }
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-import type { Server } from './types';
+import type { AnyServer, CopaServer } from './types';
 
 const DB_NAME = 'copa';
 const DB_VERSION = 2;
@@ -26,15 +26,23 @@ function tx(db: IDBDatabase, stores: string | string[], mode: IDBTransactionMode
   return db.transaction(stores, mode);
 }
 
-export function getAllServers(db: IDBDatabase): Promise<Server[]> {
+export function getAllServers(db: IDBDatabase): Promise<AnyServer[]> {
   return new Promise((resolve, reject) => {
     const req = tx(db, STORE_SERVERS, 'readonly').objectStore(STORE_SERVERS).getAll();
-    req.onsuccess = () => resolve(req.result as Server[]);
+    req.onsuccess = () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = req.result as any[];
+      // Migrate old servers (no type field) to CopaServer
+      const migrated: AnyServer[] = raw.map((s) =>
+        s.type ? (s as AnyServer) : ({ ...s, type: 'copa' } as CopaServer)
+      );
+      resolve(migrated);
+    };
     req.onerror = () => reject(req.error);
   });
 }
 
-export function putServer(db: IDBDatabase, server: Server): Promise<void> {
+export function putServer(db: IDBDatabase, server: AnyServer): Promise<void> {
   return new Promise((resolve, reject) => {
     const req = tx(db, STORE_SERVERS, 'readwrite').objectStore(STORE_SERVERS).put(server);
     req.onsuccess = () => resolve();

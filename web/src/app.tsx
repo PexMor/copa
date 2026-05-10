@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'preact/hooks';
-import type { Server, ToastMessage } from './types';
+import type { AnyServer, CopaServer, MqttServer, ToastMessage } from './types';
 import { openDB, getAllServers, putServer, deleteServer, getActiveId, setActiveId, clearActiveId } from './db';
 import { useTheme } from './hooks/useTheme';
 import { AppHeader } from './components/AppHeader';
@@ -14,11 +14,28 @@ function randomId() {
   return Math.random().toString(36).slice(2);
 }
 
+interface ConfigJson {
+  defaults?: {
+    mqttServers?: MqttServer[];
+  };
+}
+
+async function loadDefaultServers(): Promise<AnyServer[]> {
+  try {
+    const res = await fetch('./config.json');
+    if (!res.ok) return [];
+    const cfg = await res.json() as ConfigJson;
+    return cfg.defaults?.mqttServers ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export function App() {
   const { theme, setTheme } = useTheme();
   const [db, setDb] = useState<IDBDatabase | null>(null);
-  const [servers, setServers] = useState<Server[]>([]);
-  const [activeServer, setActiveServer] = useState<Server | null>(null);
+  const [servers, setServers] = useState<AnyServer[]>([]);
+  const [activeServer, setActiveServer] = useState<AnyServer | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [namespace, setNamespace] = useState('default');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -35,22 +52,32 @@ export function App() {
   useEffect(() => {
     openDB().then(async (database) => {
       setDb(database);
-      const all = await getAllServers(database);
+      let all = await getAllServers(database);
+
+      // Seed defaults from config.json when the DB is empty
+      if (all.length === 0) {
+        const defaults = await loadDefaultServers();
+        for (const s of defaults) {
+          await putServer(database, s);
+        }
+        all = defaults;
+      }
+
       setServers(all);
 
-      // Parse URL fragment for shareable link: #token=...&url=...
+      // Parse URL fragment for Copa shareable link: #token=...&url=...
       const hash = window.location.hash.slice(1);
       if (hash) {
         const params = new URLSearchParams(hash);
         const urlParam = params.get('url');
         const tokenParam = params.get('token');
         if (urlParam && tokenParam) {
-          const existing = all.find((s) => s.url === urlParam && s.token === tokenParam);
+          const existing = all.find((s) => s.type === 'copa' && (s as CopaServer).url === urlParam && (s as CopaServer).token === tokenParam);
           if (existing) {
             setActiveServer(existing);
             await setActiveId(database, existing.id);
           } else {
-            const newServer: Server = { id: randomId(), name: new URL(urlParam).host, url: urlParam, token: tokenParam };
+            const newServer: CopaServer = { id: randomId(), name: new URL(urlParam).host, type: 'copa', url: urlParam, token: tokenParam };
             await putServer(database, newServer);
             setServers((prev) => [...prev, newServer]);
             setActiveServer(newServer);
@@ -70,12 +97,12 @@ export function App() {
     });
   }, []);
 
-  const handleActivate = async (s: Server) => {
+  const handleActivate = async (s: AnyServer) => {
     setActiveServer(s);
     if (db) await setActiveId(db, s.id);
   };
 
-  const handleSave = async (s: Server) => {
+  const handleSave = async (s: AnyServer) => {
     if (!db) return;
     await putServer(db, s);
     setServers((prev) => {
@@ -101,6 +128,8 @@ export function App() {
     }
   };
 
+  const copaServer = activeServer?.type === 'copa' ? (activeServer as CopaServer) : null;
+
   return (
     <>
       <AppHeader
@@ -122,7 +151,7 @@ export function App() {
 
         <GpsShare server={activeServer} namespace={namespace} onToast={addToast} />
 
-        <ShareableLink server={activeServer} onToast={addToast} />
+        {copaServer && <ShareableLink server={copaServer} onToast={addToast} />}
       </main>
 
       <ServerDrawer
