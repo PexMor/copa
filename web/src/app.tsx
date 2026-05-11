@@ -89,10 +89,13 @@ export function App() {
       }
 
       const activeId = await getActiveId(database);
-      const active = all.find((s) => s.id === activeId) ?? all[0] ?? null;
-      if (active) {
-        setActiveServer(active);
-        if (!activeId) await setActiveId(database, active.id);
+      if (activeId) {
+        const active = all.find((s) => s.id === activeId) ?? null;
+        if (active) {
+          setActiveServer(active);
+        } else {
+          await clearActiveId(database);
+        }
       }
     });
   }, []);
