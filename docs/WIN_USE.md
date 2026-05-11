@@ -110,7 +110,84 @@ copa-tray.exe --url https://copa.example.com --token abc123
 
 ---
 
-## 5. Troubleshooting
+## 5. MQTT clipboard sharing
+
+In addition to HTTP/WebSocket sync with `copasrv`, copa-tray can exchange
+clipboard content directly with any MQTT broker — useful when you want end-to-end
+encryption or when a copasrv instance is not available.
+
+### How it works
+
+The tray menu exposes two one-shot operations:
+
+| Menu item | Action |
+|-----------|--------|
+| **Upload to MQTT** | Reads the current Windows clipboard → encrypts (AES-256-GCM, if a key is configured) → publishes to the broker with `retain=true` and QoS 1 → waits for ACK → disconnects. The tray tooltip shows how many bytes were published. |
+| **Download from MQTT** | Connects to the broker → subscribes to the configured topic → receives the **retained** message (the last value ever published to that topic) → decrypts → writes to the Windows clipboard → disconnects. The tray tooltip shows how many bytes were received. |
+
+There is **no background listener** and **no internal buffer** — copa-tray only
+connects when you click a menu item. Encryption/decryption uses the same
+AES-256-GCM envelope format as the web app, so keys and messages are fully
+interoperable between copa-tray, `copacli`, and the browser UI.
+
+The broker retains the last published message indefinitely (standard MQTT
+`retain` flag), so "Download from MQTT" always retrieves the most recently
+uploaded content without requiring both devices to be online at the same time.
+
+### Config
+
+Add an MQTT server block to `%APPDATA%\copa\config.toml`:
+
+```toml
+[cli]
+default_mqtt_server = "mybroker"
+
+[cli.mqtt_servers.mybroker]
+broker_url       = "wss://broker.emqx.io:8084/mqtt"
+topic            = "copa/clipboard/mydevice"
+aes_key          = "V2hhdCBhcmUgeW91IGxvb2tpbmcgYXQ/ICAgIDMyYg=="
+# max_message_size = 65535  # optional, default 65535
+# client_id        = "my-pc" # optional, random if omitted
+```
+
+`broker_url` scheme support:
+
+| Scheme | Transport | Default port |
+|--------|-----------|--------------|
+| `mqtt://` | TCP plain | 1883 |
+| `mqtts://` | TCP + TLS (system roots) | 8883 |
+| `ws://` | WebSocket | 8083 |
+| `wss://` | WebSocket + TLS (system roots) | 8084 |
+
+`aes_key` is optional. If omitted, messages are sent and received as plain text
+with a warning in the tooltip. Accepted key formats (all must be exactly 32 bytes
+after decoding):
+
+- **64-char hex** — `deadbeef…` (64 hex digits)
+- **Base58** (Bitcoin alphabet) — e.g. output of `copacli gen-key --base58`
+- **Base64** — standard base64, with or without padding
+
+### Override settings without editing the config file
+
+| Flag / env var | Effect |
+|----------------|--------|
+| `--mqtt-server <NAME>` | Named entry from `[cli.mqtt_servers]` |
+| `--mqtt-broker <URL>` / `COPA_MQTT_BROKER` | Broker URL (overrides config) |
+| `--mqtt-topic <TOPIC>` / `COPA_MQTT_TOPIC` | Topic (overrides config) |
+| `--mqtt-key <KEY>` / `COPA_MQTT_KEY` | AES-256 key (overrides config) |
+
+Example shortcut that enables MQTT without a config file:
+
+```
+copa-tray.exe --url https://copa.example.com --token abc123 ^
+  --mqtt-broker wss://broker.emqx.io:8084/mqtt ^
+  --mqtt-topic copa/clipboard/mypc ^
+  --mqtt-key "V2hhdCBhcmUgeW91IGxvb2tpbmcgYXQ/ICAgIDMyYg=="
+```
+
+---
+
+## 6. Troubleshooting
 
 ### Startup error dialog
 

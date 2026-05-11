@@ -1,4 +1,5 @@
-/// Shared utilities for copasrv and copacli
+/// Shared utilities for copasrv, copacli, and copa-tray
+pub mod mqtt;
 use rand::Rng;
 use serde::de::DeserializeOwned;
 use std::path::PathBuf;

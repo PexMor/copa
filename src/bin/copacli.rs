@@ -1,17 +1,21 @@
 /// copacli — local client for copasrv
 ///
 /// Subcommands:
-///   copy   one-shot: GET clipboard → output (tmux/file/cmd/stdout)
-///   paste  one-shot: input (tmux/file/cmd/stdin) → POST clipboard
-///   watch  persistent: WebSocket → output (tmux/file/cmd/stdout), auto-reconnects
-///   down   alias for copy
-///   up     alias for paste
+///   copy      one-shot: GET clipboard → output (tmux/file/cmd/stdout)
+///   paste     one-shot: input (tmux/file/cmd/stdin) → POST clipboard
+///   watch     persistent: WebSocket → output (tmux/file/cmd/stdout), auto-reconnects
+///   down      alias for copy
+///   up        alias for paste
+///   mqtt-pub  one-shot: input → encrypt → MQTT publish (retain, QoS-1)
+///   mqtt-get  one-shot: MQTT subscribe → first retained msg → decrypt → output
+///   mqtt-sub  persistent: MQTT subscribe → decrypt → output, auto-reconnects
 use clap::{Parser, Subcommand};
-use copa::{config_path, load_config_file};
+use copa::{config_path, load_config_file, mqtt::{MqttServerCfg, build_mqtt_options, default_max_message_size, mqtt_client_id, mqtt_decrypt, mqtt_encrypt}};
 use futures_util::StreamExt;
 use serde::Deserialize;
 use std::{collections::HashMap, io::Read, io::IsTerminal, path::PathBuf};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+use rumqttc::{AsyncClient, Event, Packet, QoS};
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +32,9 @@ struct CliConfig {
     #[serde(default)]
     remotes: HashMap<String, Remote>,
     default_remote: Option<String>,
+    #[serde(default)]
+    mqtt_servers: HashMap<String, MqttServerCfg>,
+    default_mqtt_server: Option<String>,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -51,6 +58,40 @@ fn get_remote(cfg: &ConfigFile, name: Option<String>) -> Result<Remote, String> 
         ))?;
     cfg.cli.remotes.get(&name).cloned()
         .ok_or_else(|| format!("remote '{name}' not found in [cli.remotes]"))
+}
+
+fn get_mqtt_server(cfg: &ConfigFile, name: Option<String>) -> Result<MqttServerCfg, String> {
+    let name = name
+        .or_else(|| cfg.cli.default_mqtt_server.clone())
+        .ok_or_else(|| format!(
+            "no mqtt-server specified and no default_mqtt_server in [cli] section\n\
+             config has {} mqtt_servers: {:?}",
+            cfg.cli.mqtt_servers.len(),
+            cfg.cli.mqtt_servers.keys().collect::<Vec<_>>()
+        ))?;
+    cfg.cli.mqtt_servers.get(&name).cloned()
+        .ok_or_else(|| format!("mqtt_server '{name}' not found in [cli.mqtt_servers]"))
+}
+
+fn resolve_mqtt_server(
+    cfg: &ConfigFile,
+    mqtt_server: Option<String>,
+    broker: Option<String>,
+    topic: Option<String>,
+    key: Option<String>,
+) -> Result<MqttServerCfg, String> {
+    if let (Some(b), Some(t)) = (broker, topic) {
+        return Ok(MqttServerCfg {
+            broker_url: b,
+            topic: t,
+            aes_key: key,
+            max_message_size: default_max_message_size(),
+            client_id: None,
+        });
+    }
+    let mut srv = get_mqtt_server(cfg, mqtt_server)?;
+    if key.is_some() { srv.aes_key = key; }
+    Ok(srv)
 }
 
 // ── tmux helpers ──────────────────────────────────────────────────────────────
@@ -328,12 +369,200 @@ fn urlencoding_simple(s: &str) -> String {
     }).collect()
 }
 
+
+// ── MQTT operations ───────────────────────────────────────────────────────────
+
+async fn do_mqtt_pub(
+    srv: MqttServerCfg,
+    socket: String,
+    session: Option<String>,
+    text_arg: Option<String>,
+    input: Option<String>,
+    input_cmd: Option<String>,
+) -> Result<(), String> {
+    let data = route_input(&text_arg, &input_cmd, &input, &socket, &session)?;
+
+    let payload = match &srv.aes_key {
+        Some(key) => mqtt_encrypt(&data, key)?,
+        None => {
+            eprintln!("warning: no aes_key configured — publishing plaintext");
+            data.clone()
+        }
+    };
+
+    if payload.len() > srv.max_message_size {
+        return Err(format!(
+            "payload too large ({} > {} bytes)",
+            payload.len(), srv.max_message_size
+        ));
+    }
+
+    let cid = mqtt_client_id(&srv.client_id);
+    let opts = build_mqtt_options(&srv.broker_url, &cid)?;
+    let (client, mut evloop) = AsyncClient::new(opts, 16);
+
+    eprintln!("→ connecting to {}", srv.broker_url);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        async {
+            let mut published = false;
+            loop {
+                match evloop.poll().await.map_err(|e| e.to_string())? {
+                    Event::Incoming(Packet::ConnAck(_)) => {
+                        eprintln!("→ connected; publishing {} bytes to {}", payload.len(), srv.topic);
+                        client
+                            .publish(&srv.topic, QoS::AtLeastOnce, true, payload.as_bytes())
+                            .await
+                            .map_err(|e| e.to_string())?;
+                        published = true;
+                    }
+                    Event::Incoming(Packet::PubAck(_)) if published => {
+                        eprintln!("✓ published and acknowledged");
+                        client.disconnect().await.ok();
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+        },
+    )
+    .await
+    .map_err(|_| "mqtt-pub timed out after 20s".to_string())
+    .and_then(|r: Result<(), String>| r)
+}
+
+async fn do_mqtt_get(
+    srv: MqttServerCfg,
+    socket: String,
+    session: Option<String>,
+    output: Option<String>,
+    output_cmd: Option<String>,
+) -> Result<(), String> {
+    if srv.aes_key.is_none() {
+        eprintln!("warning: no aes_key configured — message will not be decrypted");
+    }
+
+    let cid = mqtt_client_id(&srv.client_id);
+    let opts = build_mqtt_options(&srv.broker_url, &cid)?;
+    let (client, mut evloop) = AsyncClient::new(opts, 16);
+
+    eprintln!("→ connecting to {}", srv.broker_url);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        async {
+            loop {
+                match evloop.poll().await.map_err(|e| e.to_string())? {
+                    Event::Incoming(Packet::ConnAck(_)) => {
+                        eprintln!("→ connected; subscribing to {}", srv.topic);
+                        client
+                            .subscribe(&srv.topic, QoS::AtLeastOnce)
+                            .await
+                            .map_err(|e| e.to_string())?;
+                    }
+                    Event::Incoming(Packet::Publish(p)) => {
+                        let raw = String::from_utf8_lossy(&p.payload).into_owned();
+                        let text = if let Some(ref key) = srv.aes_key {
+                            mqtt_decrypt(&raw, key)?
+                        } else {
+                            raw
+                        };
+                        eprintln!("← received {} bytes", text.len());
+                        client.disconnect().await.ok();
+                        return route_output(&text, &output_cmd, &output, &socket, &session);
+                    }
+                    _ => {}
+                }
+            }
+        },
+    )
+    .await
+    .map_err(|_| "mqtt-get timed out after 20s (no retained message?)".to_string())
+    .and_then(|r: Result<(), String>| r)
+}
+
+async fn do_mqtt_sub(
+    srv: MqttServerCfg,
+    socket: String,
+    session: Option<String>,
+    output: Option<String>,
+    output_cmd: Option<String>,
+    max_backoff: u64,
+) {
+    if srv.aes_key.is_none() {
+        eprintln!("warning: no aes_key configured — messages will not be decrypted");
+    }
+    let mut backoff = 1u64;
+    loop {
+        eprintln!("copacli mqtt-sub: connecting to {}", srv.broker_url);
+        match mqtt_sub_once(&srv, &socket, &session, &output, &output_cmd).await {
+            Ok(()) => {
+                eprintln!("copacli mqtt-sub: connection closed");
+                backoff = 1;
+            }
+            Err(e) => {
+                eprintln!("copacli mqtt-sub: error: {e}");
+            }
+        }
+        eprintln!("copacli mqtt-sub: reconnecting in {backoff}s");
+        tokio::time::sleep(tokio::time::Duration::from_secs(backoff)).await;
+        backoff = (backoff * 2).min(max_backoff);
+    }
+}
+
+async fn mqtt_sub_once(
+    srv: &MqttServerCfg,
+    socket: &str,
+    session: &Option<String>,
+    output: &Option<String>,
+    output_cmd: &Option<String>,
+) -> Result<(), String> {
+    let cid = mqtt_client_id(&srv.client_id);
+    let opts = build_mqtt_options(&srv.broker_url, &cid)?;
+    let (client, mut evloop) = AsyncClient::new(opts, 64);
+
+    loop {
+        match evloop.poll().await {
+            Ok(Event::Incoming(Packet::ConnAck(_))) => {
+                eprintln!("copacli mqtt-sub: connected (topic={})", srv.topic);
+                client
+                    .subscribe(&srv.topic, QoS::AtLeastOnce)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(Event::Incoming(Packet::Publish(p))) => {
+                let raw = String::from_utf8_lossy(&p.payload).into_owned();
+                let text = if let Some(ref key) = srv.aes_key {
+                    match mqtt_decrypt(&raw, key) {
+                        Ok(t) => t,
+                        Err(ref e) if e == "not-copa-mqtt" => {
+                            eprintln!("copacli mqtt-sub: skipping non-copa message");
+                            continue;
+                        }
+                        Err(e) => {
+                            eprintln!("copacli mqtt-sub: decrypt error: {e}");
+                            continue;
+                        }
+                    }
+                } else {
+                    raw
+                };
+                if let Err(e) = route_output(&text, output_cmd, output, socket, session) {
+                    eprintln!("copacli mqtt-sub: output error: {e}");
+                }
+            }
+            Ok(Event::Incoming(Packet::Disconnect)) => return Ok(()),
+            Ok(_) => {}
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
 // ── CLI definition ────────────────────────────────────────────────────────────
 
 #[derive(Parser, Debug)]
 #[command(
     name = "copacli",
-    about = "copa client — copy/paste/watch against a copasrv instance",
+    about = "copa client — copy/paste/watch against a copasrv instance, or pub/get/sub via MQTT",
     long_about = "Examples:\n  \
       copacli copy -r local                          Download → tmux buffer\n  \
       copacli copy -r local --output-cmd pbcopy      Download → macOS clipboard\n  \
@@ -343,7 +572,10 @@ fn urlencoding_simple(s: &str) -> String {
       copacli paste -r local --input-cmd pbpaste     Upload macOS clipboard → remote\n  \
       copacli paste -r local 'text'                  Upload literal text → remote\n  \
       echo data | copacli paste -r local             Upload stdin → remote\n  \
-      copacli watch -r local                         Live WebSocket → tmux buffer"
+      copacli watch -r local                         Live WebSocket → tmux buffer\n  \
+      copacli mqtt-pub -m mybroker 'text'            Encrypt + publish to MQTT broker\n  \
+      copacli mqtt-get -m mybroker -o -              Get retained MQTT message → stdout\n  \
+      copacli mqtt-sub -m mybroker                   Persistent MQTT subscribe → tmux buffer"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -446,6 +678,73 @@ enum Commands {
         #[arg(value_name = "TEXT")] text: Option<String>,
         #[arg(short, long)] verbose: bool,
     },
+    /// Encrypt and publish to an MQTT broker (retain=true, QoS=1)
+    #[command(name = "mqtt-pub")]
+    MqttPub {
+        #[arg(short = 'm', long, env = "COPA_MQTT_SERVER",
+              help = "Named MQTT server from [cli.mqtt_servers.<name>] in config")]
+        mqtt_server: Option<String>,
+        #[arg(long, env = "COPA_MQTT_BROKER",
+              help = "Broker URL: mqtt://, mqtts://, ws://, or wss://")]
+        broker: Option<String>,
+        #[arg(long, env = "COPA_MQTT_TOPIC")]
+        topic: Option<String>,
+        #[arg(long, env = "COPA_MQTT_KEY",
+              help = "AES-256 key: base64 (44 chars), 64-char hex, or base58")]
+        key: Option<String>,
+        #[arg(short = 'x', long, env = "COPA_SOCKET")]
+        socket: Option<String>,
+        #[arg(short = 'S', long, env = "COPA_SESSION")]
+        session: Option<String>,
+        #[arg(short, long, value_name = "PATH", help = "Input from file or stdin ('-')")]
+        input: Option<String>,
+        #[arg(long, value_name = "CMD", help = "Read input from command")]
+        input_cmd: Option<String>,
+        #[arg(value_name = "TEXT")]
+        text: Option<String>,
+    },
+    /// Subscribe and receive the first (retained) MQTT message, then disconnect
+    #[command(name = "mqtt-get")]
+    MqttGet {
+        #[arg(short = 'm', long, env = "COPA_MQTT_SERVER")]
+        mqtt_server: Option<String>,
+        #[arg(long, env = "COPA_MQTT_BROKER")]
+        broker: Option<String>,
+        #[arg(long, env = "COPA_MQTT_TOPIC")]
+        topic: Option<String>,
+        #[arg(long, env = "COPA_MQTT_KEY")]
+        key: Option<String>,
+        #[arg(short = 'x', long, env = "COPA_SOCKET")]
+        socket: Option<String>,
+        #[arg(short = 'S', long, env = "COPA_SESSION")]
+        session: Option<String>,
+        #[arg(short, long, value_name = "PATH", help = "Output to file or stdout ('-')")]
+        output: Option<String>,
+        #[arg(long, value_name = "CMD", help = "Pipe output to command")]
+        output_cmd: Option<String>,
+    },
+    /// Persistent MQTT subscription → output, auto-reconnects on disconnect
+    #[command(name = "mqtt-sub")]
+    MqttSub {
+        #[arg(short = 'm', long, env = "COPA_MQTT_SERVER")]
+        mqtt_server: Option<String>,
+        #[arg(long, env = "COPA_MQTT_BROKER")]
+        broker: Option<String>,
+        #[arg(long, env = "COPA_MQTT_TOPIC")]
+        topic: Option<String>,
+        #[arg(long, env = "COPA_MQTT_KEY")]
+        key: Option<String>,
+        #[arg(short = 'x', long, env = "COPA_SOCKET")]
+        socket: Option<String>,
+        #[arg(short = 'S', long, env = "COPA_SESSION")]
+        session: Option<String>,
+        #[arg(short, long, value_name = "PATH", help = "Output to file or stdout ('-')")]
+        output: Option<String>,
+        #[arg(long, value_name = "CMD", help = "Pipe each received message to command")]
+        output_cmd: Option<String>,
+        #[arg(long, default_value_t = 30)]
+        max_backoff: u64,
+    },
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -482,6 +781,24 @@ async fn main() {
             let socket = resolve_socket(socket);
             do_watch(r.url, r.token, namespace, socket, session, output, output_cmd, max_backoff).await;
         }
+        Commands::MqttPub { mqtt_server, broker, topic, key, socket, session, input, input_cmd, text } => {
+            let srv = resolve_mqtt_server(&cfg, mqtt_server, broker, topic, key);
+            let srv = unwrap_or_exit(srv);
+            let socket = resolve_socket(socket);
+            unwrap_or_exit(do_mqtt_pub(srv, socket, session, text, input, input_cmd).await);
+        }
+        Commands::MqttGet { mqtt_server, broker, topic, key, socket, session, output, output_cmd } => {
+            let srv = resolve_mqtt_server(&cfg, mqtt_server, broker, topic, key);
+            let srv = unwrap_or_exit(srv);
+            let socket = resolve_socket(socket);
+            unwrap_or_exit(do_mqtt_get(srv, socket, session, output, output_cmd).await);
+        }
+        Commands::MqttSub { mqtt_server, broker, topic, key, socket, session, output, output_cmd, max_backoff } => {
+            let srv = resolve_mqtt_server(&cfg, mqtt_server, broker, topic, key);
+            let srv = unwrap_or_exit(srv);
+            let socket = resolve_socket(socket);
+            do_mqtt_sub(srv, socket, session, output, output_cmd, max_backoff).await;
+        }
     }
 }
 
@@ -502,4 +819,3 @@ fn resolve_remote(
 fn unwrap_or_exit<T>(r: Result<T, String>) -> T {
     r.unwrap_or_else(|e| { eprintln!("error: {e}"); std::process::exit(1); })
 }
-

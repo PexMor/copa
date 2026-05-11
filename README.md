@@ -8,7 +8,7 @@
 |--------|------|
 | **`copasrv`** | HTTP/WebSocket server. Manages named clipboard namespaces in memory. No tmux dependency. |
 | **`copacli`** | Local client. One-shot copy/paste and persistent `watch` mode. Handles all tmux, file, and platform-clipboard I/O. |
-| **`copa-tray`** | Windows system-tray client (separate build). |
+| **`copa-tray`** | Windows system-tray client (separate build). Supports both HTTP and MQTT clipboard sharing. |
 
 The separation keeps the server's attack surface small — it stores bytes and pushes WebSocket events; it never touches tmux or runs subprocesses.
 
@@ -19,6 +19,7 @@ The separation keeps the server's attack surface small — it stores bytes and p
 - **REST API** — simple GET/POST on `/api/clipboard` with `X-Copa-Namespace` header
 - **`copacli watch`** — persistent background bridge: WebSocket → tmux buffer (or any command), auto-reconnects
 - **`copacli copy/paste`** — one-shot download/upload with full I/O routing (tmux, file, stdout, platform clipboard tools)
+- **MQTT clipboard sharing** — `copacli mqtt-pub/mqtt-get/mqtt-sub` and copa-tray Upload/Download menu items; AES-256-GCM encrypted, interoperable with the web app; works with any MQTT broker over `mqtt://`, `mqtts://`, `ws://`, `wss://`
 - **Web UI** — namespace selector, Live WebSocket toggle, auto-pull, shareable token links
 
 ## Installation
@@ -116,6 +117,18 @@ token = "your-rw-token"
 url   = "https://copa.example.com"
 token = "work-token"
 headers = { "X-Custom-Header" = "value" }
+
+# MQTT servers — each is an independent broker/topic/key combination.
+# Used by mqtt-pub, mqtt-get, mqtt-sub (copacli) and the tray Upload/Download items.
+[cli]
+default_mqtt_server = "mybroker"
+
+[cli.mqtt_servers.mybroker]
+broker_url       = "wss://broker.emqx.io:8084/mqtt"
+topic            = "copa/clipboard/mykey"
+aes_key          = "V2hhdCBhcmUgeW91IGxvb2tpbmcgYXQ/ICAgIDMyYg=="
+# max_message_size = 65535  # default
+# client_id        = "myhost"  # random if omitted
 ```
 
 ### Environment Variables
@@ -129,6 +142,12 @@ COPA_NAMESPACE=shared      # copacli default namespace
 COPA_SOCKET=/tmp/tmux-1000/default
 COPA_SESSION=main
 COPA_CONFIG=/path/to/config.toml
+
+# MQTT overrides (copacli + copa-tray)
+COPA_MQTT_SERVER=mybroker  # named entry from [cli.mqtt_servers]
+COPA_MQTT_BROKER=wss://broker.example.com:8084/mqtt
+COPA_MQTT_TOPIC=copa/clipboard/mykey
+COPA_MQTT_KEY=<base64-or-hex-or-base58 AES-256 key>
 ```
 
 Precedence: CLI args > environment variables > config file > defaults.
@@ -219,6 +238,54 @@ copacli watch -r local --max-backoff 60
 ```
 
 **Tip:** Run `copacli watch` as a background service or in a tmux window to get automatic clipboard sync whenever anyone pushes to the server.
+
+### mqtt-pub — publish to an MQTT broker
+
+Reads input (same sources as `paste`), encrypts with AES-256-GCM if a key is set, and publishes with `retain=true` QoS 1 so any subscriber can retrieve the latest value at any time.
+
+```bash
+# From tmux buffer (default)
+copacli mqtt-pub -m mybroker
+
+# Literal text
+copacli mqtt-pub -m mybroker "hello world"
+
+# From stdin
+echo "data" | copacli mqtt-pub -m mybroker -i -
+
+# Without a config entry
+copacli mqtt-pub --broker wss://broker.emqx.io:8084/mqtt --topic copa/test \
+  --key "$(openssl rand -base64 32)" "secret text"
+```
+
+### mqtt-get — download the retained message
+
+Connects, subscribes, receives the single retained message (last ever published), decrypts, and routes to output.
+
+```bash
+# To tmux buffer
+copacli mqtt-get -m mybroker
+
+# To stdout
+copacli mqtt-get -m mybroker -o -
+
+# To macOS clipboard
+copacli mqtt-get -m mybroker --output-cmd pbcopy
+```
+
+### mqtt-sub — persistent subscription loop
+
+Stays connected (or auto-reconnects with exponential backoff) and routes every incoming message to the configured output — equivalent of `watch` but over MQTT.
+
+```bash
+# Print every incoming message to stdout
+copacli mqtt-sub -m mybroker -o -
+
+# Route to tmux buffer on every message
+copacli mqtt-sub -m mybroker
+```
+
+All three MQTT subcommands accept the same `-x`/`-S`/`-o`/`--output-cmd`/`-i`/`--input-cmd` routing flags as `copy`/`paste`.
 
 ### Aliases
 
