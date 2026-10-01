@@ -16,16 +16,27 @@ port = 8080
 # Bind address (default: 127.0.0.1 — change to 0.0.0.0 to expose on network)
 bind = "127.0.0.1"
 
+# Origins allowed to call the API from a browser (default: any origin).
+# Set this when the server is reachable from the internet.
+# allowed_origins = ["https://copa.example.com"]
+
 # Named clipboard namespaces. Each namespace is independent with its own:
-#   - size_limit: max content size in bytes (default: 16384 = 16 KB)
+#   - size_limit: max size of a text item in bytes (default: 16384 = 16 KB)
 #   - read_token:  token granting read-only access
 #   - write_token: token granting write-only access
 #   - rw_token:    token granting read+write access
+#   - history_limit: items kept in history (default: 20)
+#   - item_ttl_secs: lifetime of every item, text and file (default: 86400 = 24 h, must be > 0)
+#   - files: set to false to disable file sharing for the namespace
+#   - max_file_size: largest single file in bytes (default: 52428800 = 50 MiB)
+#   - file_quota_bytes: total bytes of files (default: 524288000 = 500 MiB)
 # At least one token per namespace is required; any combination is valid.
 
 [server.namespaces.default]
 size_limit = 16384
 rw_token = "your-rw-token-here"          # generate: copasrv --generate-token
+history_limit = 20
+item_ttl_secs = 86400
 
 # Optional extra namespace with separate tokens
 [server.namespaces.shared]
@@ -40,6 +51,20 @@ write_token = "writer-token-here"
 
 # Legacy single-token shorthand (maps to default namespace rw_token):
 # token = "your-token-here"
+
+# File sharing through S3-compatible storage (optional) — see docs/FILES.md.
+# `make s3-up` starts a local Garage and prints this block with real values.
+# copasrv only signs short-lived URLs; clients upload/download directly.
+#
+# [server.storage]
+# public_url        = "https://s3.example.com"   # base URL clients reach (required)
+# endpoint          = "http://127.0.0.1:3900"    # base URL copasrv uses (default: public_url)
+# region            = "garage"                   # default: garage
+# bucket            = "copa"                     # required
+# access_key_id     = "GK..."                    # required
+# secret_access_key = "..."                      # required, or env COPA_S3_SECRET_ACCESS_KEY
+# key_prefix        = "copa/"                    # one prefix per copasrv instance!
+# presign_ttl_secs  = 300                        # lifetime of upload/download URLs
 
 # ── Client (copacli) ──────────────────────────────────────────────────────────
 
@@ -71,3 +96,9 @@ headers = { "X-Custom-Header" = "value" }
 #   echo data | copacli paste -r local       upload stdin
 #   copacli watch -r local                   live WebSocket → tmux buffer (runs forever)
 #   copacli watch -r local --output-cmd pbcopy  live → macOS clipboard
+#   copacli history -r local                 list server-side history (id, kind, size, expiry)
+#   copacli copy -r local --item ID -o -     an older text item → stdout
+#   copacli history -r local rm ID           delete one item (clear: delete all)
+#   copacli put -r local report.pdf          upload a file (needs [server.storage])
+#   copacli get -r local                     download the newest file → ./<name>
+#   copacli get -r local ID -o ~/Downloads   download a specific file into a directory

@@ -1,0 +1,41 @@
+# Caddy in front of copasrv and the Garage S3 API — two hostnames, HTTPS only.
+#
+# Values come from the environment (see ../.env.example); the defaults give a
+# local test setup on https://copa.localhost:8443 and https://s3.localhost:8443
+# with certificates from Caddy's internal CA. Browsers and curl resolve
+# *.localhost by themselves; other clients (copacli, websocat) need the names
+# in /etc/hosts, or use names that resolve publicly to 127.0.0.1 together with
+# COPA_LOCAL_CERTS=local_certs.
+#
+# For real hostnames: set COPA_HOST / COPA_S3_HOST to public DNS names and
+# COPA_HTTPS_PORT=443 — Caddy then obtains Let's Encrypt certificates itself.
+{
+	https_port {$COPA_HTTPS_PORT:443}
+	# No plain-http listener and no admin endpoint on the host network.
+	auto_https disable_redirects
+	admin off
+	# Empty by default. COPA_LOCAL_CERTS=local_certs makes Caddy issue every
+	# certificate from its internal CA — for test hostnames that are not
+	# *.localhost and must not be sent to Let's Encrypt.
+	{$COPA_LOCAL_CERTS}
+}
+
+# copasrv: REST API, /ws and /ws/events (WebSocket upgrades are proxied
+# automatically), and the web UI.
+{$COPA_HOST:copa.localhost} {
+	reverse_proxy {$COPA_UPSTREAM:127.0.0.1:8080}
+}
+
+# Garage S3 API. Presigned URLs are signed over Host + path + query, so the
+# proxy must pass all three through untouched — which is Caddy's default
+# (no path rewriting, original Host header forwarded).
+{$COPA_S3_HOST:s3.localhost} {
+	# Keep in step with the largest max_file_size in copa's config (default 50 MiB).
+	request_body {
+		max_size 64MB
+	}
+	reverse_proxy {$COPA_S3_UPSTREAM:127.0.0.1:3900} {
+		# stream uploads/downloads instead of buffering them
+		flush_interval -1
+	}
+}

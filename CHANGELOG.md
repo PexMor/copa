@@ -7,7 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING (behaviour):** clipboard content now expires. Every item lives for
+  `item_ttl_secs` (default 86400 = 24 h, per namespace); after that
+  `GET /api/clipboard` returns an empty body. Previously content stayed until
+  the server restarted. Set a larger `item_ttl_secs` to keep content longer.
+- Tokens are compared in constant time; an empty token never matches.
+- `copasrv --config` / `COPA_CONFIG` is now honoured (it was parsed but ignored).
+- A write-only WebSocket session on `/ws` now stays open instead of closing
+  immediately.
+- `copacli` and `copa-tray` trust the system certificate store for HTTPS
+  (and `SSL_CERT_FILE`), so servers behind a private CA work.
+
 ### Added
+- Server-side clipboard history: `history_limit` items per namespace (default 20),
+  `GET /api/history`, `GET`/`DELETE /api/history/{id}`, `DELETE /api/history`,
+  optional `X-Copa-TTL` header, and a JSON event stream on `/ws/events`
+- File sharing through S3-compatible storage with presigned URLs
+  (`[server.storage]`, `POST /api/files`, `POST /api/files/{id}/complete`,
+  `GET /api/files/{id}`), per-namespace `max_file_size` and `file_quota_bytes`;
+  expired, evicted and deleted files are removed from the object store, and
+  orphaned objects are swept at startup and periodically — see `docs/FILES.md`
+- `GET /api/capabilities`
+- `copacli put`, `copacli get`, `copacli history` (`rm`, `clear`), `copacli copy --item`
+- Web app: history list, drag-and-drop / picker / paste file upload with progress
+- `server.allowed_origins` to restrict CORS
+- Reference Garage backend in `deploy/garage/` with Caddy, HAProxy and
+  cloudflared examples; `make s3-up`, `make s3-down`, `make test-s3`
 - Initial release
 - HTTP server with token authentication
 - Dual clipboard: tmux buffer + server-side clipboard

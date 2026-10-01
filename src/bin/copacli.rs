@@ -6,14 +6,17 @@
 ///   watch     persistent: WebSocket → output (tmux/file/cmd/stdout), auto-reconnects
 ///   down      alias for copy
 ///   up        alias for paste
+///   put       one-shot: upload a file as a file item (via presigned URL)
+///   get       one-shot: download a file item (default: newest)
+///   history   list / rm / clear server-side history items
 ///   mqtt-pub  one-shot: input → encrypt → MQTT publish (retain, QoS-1)
 ///   mqtt-get  one-shot: MQTT subscribe → first retained msg → decrypt → output
 ///   mqtt-sub  persistent: MQTT subscribe → decrypt → output, auto-reconnects
 use clap::{Parser, Subcommand};
-use copa::{config_path, load_config_file, mqtt::{MqttServerCfg, build_mqtt_options, default_max_message_size, mqtt_client_id, mqtt_decrypt, mqtt_encrypt}};
+use copa::{config_path, load_config_file, now_ms, sanitize_filename, mqtt::{MqttServerCfg, build_mqtt_options, default_max_message_size, mqtt_client_id, mqtt_decrypt, mqtt_encrypt}};
 use futures_util::StreamExt;
 use serde::Deserialize;
-use std::{collections::HashMap, io::Read, io::IsTerminal, path::PathBuf};
+use std::{collections::HashMap, io::Read, io::IsTerminal, path::{Path, PathBuf}};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use rumqttc::{AsyncClient, Event, Packet, QoS};
 
@@ -243,8 +246,25 @@ fn do_copy(
     namespace: Option<String>,
     output: Option<String>,
     output_cmd: Option<String>,
+    item: Option<String>,
     verbose: bool,
 ) -> Result<(), String> {
+    if let Some(id) = item {
+        let api = Api { remote, namespace };
+        eprintln!("→ downloading item {id} from {}", api.remote.url);
+        let text = match api.req("GET", &format!("/api/history/{id}")).call() {
+            Ok(resp) => resp.into_string().map_err(|e| format!("read failed: {e}"))?,
+            Err(ureq::Error::Status(409, _)) => {
+                return Err(format!("item {id} is a file — use: copacli get {id}"));
+            }
+            Err(ureq::Error::Status(404, _)) => {
+                return Err(format!("item {id} was not found or has expired"));
+            }
+            Err(e) => return Err(api_error(e)),
+        };
+        eprintln!("← received {} bytes", text.len());
+        return route_output(&text, &output_cmd, &output, &socket, &session);
+    }
     eprintln!("→ downloading from {}/api/clipboard", remote.url);
     let mut req = ureq::get(&format!("{}/api/clipboard", remote.url))
         .set("Authorization", &format!("Bearer {}", remote.token));
@@ -557,6 +577,293 @@ async fn mqtt_sub_once(
     }
 }
 
+// ── files and history ─────────────────────────────────────────────────────────
+
+/// A remote plus namespace: builds authenticated requests for the JSON API.
+struct Api {
+    remote:    Remote,
+    namespace: Option<String>,
+}
+
+impl Api {
+    fn req(&self, method: &str, path: &str) -> ureq::Request {
+        let mut req = ureq::request(method, &format!("{}{path}", self.remote.url.trim_end_matches('/')))
+            .set("Authorization", &format!("Bearer {}", self.remote.token));
+        if let Some(ns) = &self.namespace { req = req.set("X-Copa-Namespace", ns); }
+        for (k, v) in &self.remote.headers { req = req.set(k, v); }
+        req
+    }
+
+    fn get_json(&self, path: &str) -> Result<serde_json::Value, ureq::Error> {
+        let resp = self.req("GET", path).call()?;
+        resp.into_json().map_err(ureq::Error::from)
+    }
+}
+
+/// Human-readable error, using the server's `{"error": …}` message if present.
+fn api_error(e: ureq::Error) -> String {
+    match e {
+        ureq::Error::Status(code, resp) => {
+            let body = resp.into_string().unwrap_or_default();
+            let msg = serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|v| v["error"].as_str().map(str::to_owned))
+                .unwrap_or(body);
+            match code {
+                401 => "unauthorized — the token lacks the required permission for this namespace".into(),
+                _ if msg.trim().is_empty() => format!("server returned {code}"),
+                _ => format!("server returned {code}: {}", msg.trim()),
+            }
+        }
+        ureq::Error::Transport(t) => format!("request failed: {t}"),
+    }
+}
+
+fn format_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 { format!("{bytes} B") } else { format!("{value:.1} {}", UNITS[unit]) }
+}
+
+fn format_remaining(ms: u64) -> String {
+    let secs = ms / 1000;
+    match secs {
+        0..=59 => format!("{secs}s"),
+        60..=3599 => format!("{}m{:02}s", secs / 60, secs % 60),
+        3600..=86_399 => format!("{}h{:02}m", secs / 3600, (secs % 3600) / 60),
+        _ => format!("{}d{:02}h", secs / 86_400, (secs % 86_400) / 3600),
+    }
+}
+
+/// Declared content type (metadata only), from the file extension.
+fn guess_content_type(name: &str) -> Option<&'static str> {
+    let ext = name.rsplit_once('.')?.1.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "txt" | "log" => "text/plain",
+        "md" => "text/markdown",
+        "html" | "htm" => "text/html",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        "pdf" => "application/pdf",
+        "zip" => "application/zip",
+        "gz" | "tgz" => "application/gzip",
+        "tar" => "application/x-tar",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "mp3" => "audio/mpeg",
+        "mp4" => "video/mp4",
+        _ => return None,
+    })
+}
+
+fn do_put(api: Api, file: PathBuf, name: Option<String>, ttl: Option<u64>) -> Result<(), String> {
+    let meta = std::fs::metadata(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    if !meta.is_file() {
+        return Err(format!("{} is not a regular file", file.display()));
+    }
+    let size = meta.len();
+    let name = sanitize_filename(&name.unwrap_or_else(|| {
+        file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    }));
+
+    let mut body = serde_json::json!({ "name": name, "size": size });
+    if let Some(t) = guess_content_type(&name) { body["content_type"] = t.into(); }
+    if let Some(t) = ttl { body["ttl_secs"] = t.into(); }
+
+    eprintln!("→ requesting upload of {name} ({}) at {}", format_size(size), api.remote.url);
+    let grant: serde_json::Value = match api.req("POST", "/api/files").send_json(body) {
+        Ok(resp) => resp.into_json().map_err(|e| format!("bad response: {e}"))?,
+        Err(ureq::Error::Status(404 | 405, _)) => {
+            return Err("the server does not support files (not enabled on this server or namespace)".into());
+        }
+        Err(ureq::Error::Status(413, _)) => {
+            let limit = api.get_json("/api/capabilities").ok().and_then(|c| c["max_file_size"].as_u64());
+            return Err(match limit {
+                Some(l) => format!("file is too large: {} exceeds the server limit of {}", format_size(size), format_size(l)),
+                None => "file is too large for this server".into(),
+            });
+        }
+        Err(ureq::Error::Status(507, _)) => {
+            return Err("the namespace's file storage quota is exhausted — remove items (copacli history rm) or wait for them to expire".into());
+        }
+        Err(e) => return Err(api_error(e)),
+    };
+    let id = grant["id"].as_str().ok_or("bad response: no id")?.to_owned();
+    let url = grant["upload_url"].as_str().ok_or("bad response: no upload_url")?;
+
+    // Stream from disk straight to the object store. The headers are part of
+    // the URL's signature and must be sent exactly as given.
+    let mut put = ureq::request(grant["method"].as_str().unwrap_or("PUT"), url);
+    if let Some(headers) = grant["headers"].as_object() {
+        for (k, v) in headers {
+            put = put.set(k, v.as_str().unwrap_or_default());
+        }
+    }
+    let reader = std::fs::File::open(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    eprintln!("→ uploading {} to object store", format_size(size));
+    match put.send(reader) {
+        Ok(_) => {}
+        Err(ureq::Error::Status(code, _)) => return Err(format!("upload failed: object store returned {code}")),
+        Err(ureq::Error::Transport(t)) => return Err(format!("upload failed: {}", t.kind())),
+    }
+
+    match api.req("POST", &format!("/api/files/{id}/complete")).call() {
+        Ok(_) => {}
+        Err(e) => return Err(format!("upload could not be completed: {}", api_error(e))),
+    }
+    eprintln!("✓ uploaded {name} ({})", format_size(size));
+    println!("{id}");
+    Ok(())
+}
+
+/// Where a downloaded item goes. The item name is reduced to a single safe
+/// path component, so the result is always directly inside the chosen directory.
+fn resolve_dest(output: Option<&str>, item_name: &str) -> PathBuf {
+    let safe = sanitize_filename(item_name);
+    match output {
+        None => PathBuf::from(".").join(safe),
+        Some(path) if Path::new(path).is_dir() => Path::new(path).join(safe),
+        Some(path) => PathBuf::from(path),
+    }
+}
+
+fn do_get(api: Api, id: Option<String>, output: Option<String>, force: bool) -> Result<(), String> {
+    let id = match id {
+        Some(id) => id,
+        None => {
+            let items = api.get_json("/api/history").map_err(|e| match e {
+                ureq::Error::Status(404 | 405, _) => "the server does not support history or files".to_owned(),
+                e => api_error(e),
+            })?;
+            items
+                .as_array()
+                .and_then(|a| a.iter().find(|i| i["kind"] == "file"))
+                .and_then(|i| i["id"].as_str())
+                .ok_or("no file is available in this namespace")?
+                .to_owned()
+        }
+    };
+
+    let info = match api.get_json(&format!("/api/files/{id}")) {
+        Ok(v) => v,
+        Err(ureq::Error::Status(409, _)) => {
+            return Err(format!("item {id} is text — use: copacli copy --item {id}"));
+        }
+        Err(ureq::Error::Status(404, resp)) => {
+            let body = resp.into_string().unwrap_or_default();
+            return Err(if body.contains("files not enabled") || !body.contains("error") {
+                "the server does not support files (not enabled on this server or namespace)".into()
+            } else {
+                format!("item {id} was not found or has expired")
+            });
+        }
+        Err(e) => return Err(api_error(e)),
+    };
+    let url = info["download_url"].as_str().ok_or("bad response: no download_url")?;
+    let name = info["name"].as_str().unwrap_or("file");
+    let size = info["size"].as_u64().unwrap_or(0);
+
+    let fetch = || match ureq::get(url).call() {
+        Ok(resp) => Ok(resp.into_reader()),
+        Err(ureq::Error::Status(code, _)) => Err(format!("download failed: object store returned {code}")),
+        Err(ureq::Error::Transport(t)) => Err(format!("download failed: {}", t.kind())),
+    };
+
+    if output.as_deref() == Some("-") {
+        let mut reader = fetch()?;
+        let n = std::io::copy(&mut reader, &mut std::io::stdout().lock()).map_err(|e| format!("download failed: {e}"))?;
+        eprintln!("✓ wrote {} to stdout", format_size(n));
+        return Ok(());
+    }
+
+    let dest = resolve_dest(output.as_deref(), name);
+    if dest.exists() && !force {
+        return Err(format!("{} already exists (use --force to overwrite)", dest.display()));
+    }
+    let mut part = dest.clone().into_os_string();
+    part.push(".part");
+    let part = PathBuf::from(part);
+
+    eprintln!("→ downloading {name} ({})", format_size(size));
+    let result = (|| {
+        let mut reader = fetch()?;
+        let mut file = std::fs::File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?;
+        let n = std::io::copy(&mut reader, &mut file).map_err(|e| format!("download failed: {e}"))?;
+        if n != size {
+            return Err(format!("download incomplete: got {n} of {size} bytes"));
+        }
+        file.sync_all().map_err(|e| format!("{}: {e}", part.display()))?;
+        if dest.exists() && !force {
+            return Err(format!("{} already exists (use --force to overwrite)", dest.display()));
+        }
+        std::fs::rename(&part, &dest).map_err(|e| format!("{}: {e}", dest.display()))
+    })();
+    if result.is_err() {
+        // never leave a partial file behind
+        let _ = std::fs::remove_file(&part);
+    }
+    result?;
+    eprintln!("✓ saved {} ({})", dest.display(), format_size(size));
+    Ok(())
+}
+
+fn do_history_list(api: Api, json: bool) -> Result<(), String> {
+    let resp = api.req("GET", "/api/history").call().map_err(|e| match e {
+        ureq::Error::Status(404 | 405, _) => "the server does not support history".to_owned(),
+        e => api_error(e),
+    })?;
+    let body = resp.into_string().map_err(|e| format!("read failed: {e}"))?;
+    if json {
+        println!("{body}");
+        return Ok(());
+    }
+    let items: Vec<serde_json::Value> = serde_json::from_str(&body).map_err(|e| format!("bad response: {e}"))?;
+    if items.is_empty() {
+        eprintln!("(history is empty)");
+        return Ok(());
+    }
+    let now = now_ms();
+    println!("{:<32}  {:<4}  {:>10}  {:>7}  NAME / PREVIEW", "ID", "KIND", "SIZE", "EXPIRES");
+    for item in &items {
+        let kind = item["kind"].as_str().unwrap_or("?");
+        let label = if kind == "file" { item["name"].as_str() } else { item["preview"].as_str() }.unwrap_or("");
+        // one line, no control characters
+        let label: String = label.chars().map(|c| if c.is_control() { ' ' } else { c }).take(60).collect();
+        println!(
+            "{:<32}  {:<4}  {:>10}  {:>7}  {}",
+            item["id"].as_str().unwrap_or("?"),
+            kind,
+            format_size(item["size"].as_u64().unwrap_or(0)),
+            format_remaining(item["expires_at"].as_u64().unwrap_or(0).saturating_sub(now)),
+            label.trim_end(),
+        );
+    }
+    Ok(())
+}
+
+fn do_history_rm(api: Api, id: String) -> Result<(), String> {
+    match api.req("DELETE", &format!("/api/history/{id}")).call() {
+        Ok(_) => { eprintln!("✓ removed {id}"); Ok(()) }
+        Err(ureq::Error::Status(404, _)) => Err(format!("item {id} was not found or has expired")),
+        Err(e) => Err(api_error(e)),
+    }
+}
+
+fn do_history_clear(api: Api) -> Result<(), String> {
+    let resp = api.req("DELETE", "/api/history").call().map_err(api_error)?;
+    let n = resp.into_json::<serde_json::Value>().ok().and_then(|v| v["deleted"].as_u64()).unwrap_or(0);
+    eprintln!("✓ removed {n} item(s)");
+    Ok(())
+}
+
 // ── CLI definition ────────────────────────────────────────────────────────────
 
 #[derive(Parser, Debug)]
@@ -573,6 +880,10 @@ async fn mqtt_sub_once(
       copacli paste -r local 'text'                  Upload literal text → remote\n  \
       echo data | copacli paste -r local             Upload stdin → remote\n  \
       copacli watch -r local                         Live WebSocket → tmux buffer\n  \
+      copacli put -r local report.pdf                Upload a file (prints the item id)\n  \
+      copacli get -r local                           Download the newest file → ./<name>\n  \
+      copacli history -r local                       List server-side history\n  \
+      copacli copy -r local --item ID -o -           Older text item → stdout\n  \
       copacli mqtt-pub -m mybroker 'text'            Encrypt + publish to MQTT broker\n  \
       copacli mqtt-get -m mybroker -o -              Get retained MQTT message → stdout\n  \
       copacli mqtt-sub -m mybroker                   Persistent MQTT subscribe → tmux buffer"
@@ -584,6 +895,30 @@ struct Cli {
     config: Option<PathBuf>,
     #[arg(long)]
     print_config_path: bool,
+}
+
+/// Which server and namespace to talk to (same resolution as copy/paste).
+#[derive(clap::Args, Debug)]
+struct Target {
+    #[arg(short, long, env = "COPA_REMOTE", global = true)]
+    remote: Option<String>,
+    #[arg(long, env = "COPA_SERVER", global = true, help = "Server URL (overrides remote config)")]
+    server: Option<String>,
+    #[arg(long, env = "COPA_TOKEN", global = true, help = "Auth token (overrides remote config)")]
+    token: Option<String>,
+    #[arg(long, env = "COPA_NAMESPACE", global = true)]
+    namespace: Option<String>,
+}
+
+#[derive(Subcommand, Debug)]
+enum HistoryAction {
+    /// Delete one item
+    Rm {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Delete all items of the namespace
+    Clear,
 }
 
 #[derive(Subcommand, Debug)]
@@ -606,6 +941,8 @@ enum Commands {
         output: Option<String>,
         #[arg(long, value_name = "CMD", help = "Pipe output to command (e.g. 'pbcopy', 'xsel -ib', 'wl-copy')")]
         output_cmd: Option<String>,
+        #[arg(long, value_name = "ID", help = "Fetch this history item instead of the newest text (see 'copacli history')")]
+        item: Option<String>,
         #[arg(short, long)]
         verbose: bool,
     },
@@ -663,6 +1000,7 @@ enum Commands {
         #[arg(short = 'S', long, env = "COPA_SESSION")] session: Option<String>,
         #[arg(short, long)] output: Option<String>,
         #[arg(long)]        output_cmd: Option<String>,
+        #[arg(long, value_name = "ID")] item: Option<String>,
         #[arg(short, long)] verbose: bool,
     },
     /// Alias for paste
@@ -677,6 +1015,37 @@ enum Commands {
         #[arg(long)]        input_cmd: Option<String>,
         #[arg(value_name = "TEXT")] text: Option<String>,
         #[arg(short, long)] verbose: bool,
+    },
+    /// Upload a file as a file item (requires file support on the server)
+    Put {
+        #[command(flatten)]
+        target: Target,
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
+        #[arg(long, value_name = "NAME", help = "Name to store instead of the file's own name")]
+        name: Option<String>,
+        #[arg(long, value_name = "SECS", help = "Expire after this many seconds (capped by the server's TTL)")]
+        ttl: Option<u64>,
+    },
+    /// Download a file item (default: the newest file)
+    Get {
+        #[command(flatten)]
+        target: Target,
+        #[arg(value_name = "ID")]
+        id: Option<String>,
+        #[arg(short, long, value_name = "PATH", help = "File or directory to write to, or '-' for stdout (default: ./<name>)")]
+        output: Option<String>,
+        #[arg(short, long, help = "Overwrite an existing file")]
+        force: bool,
+    },
+    /// List server-side history (newest first); `rm <ID>` / `clear` delete items
+    History {
+        #[command(flatten)]
+        target: Target,
+        #[arg(long, help = "Print the server's JSON listing verbatim")]
+        json: bool,
+        #[command(subcommand)]
+        action: Option<HistoryAction>,
     },
     /// Encrypt and publish to an MQTT broker (retain=true, QoS=1)
     #[command(name = "mqtt-pub")]
@@ -761,12 +1130,26 @@ async fn main() {
     let cfg = load_config(cli.config);
 
     match cli.command {
-        Commands::Copy { remote, server, token, namespace, socket, session, output, output_cmd, verbose }
-        | Commands::Down { remote, server, token, namespace, socket, session, output, output_cmd, verbose } => {
+        Commands::Copy { remote, server, token, namespace, socket, session, output, output_cmd, item, verbose }
+        | Commands::Down { remote, server, token, namespace, socket, session, output, output_cmd, item, verbose } => {
             let r = resolve_remote(&cfg, remote, server, token);
             let r = unwrap_or_exit(r);
             let socket = resolve_socket(socket);
-            unwrap_or_exit(do_copy(r, socket, session, namespace, output, output_cmd, verbose));
+            unwrap_or_exit(do_copy(r, socket, session, namespace, output, output_cmd, item, verbose));
+        }
+        Commands::Put { target, file, name, ttl } => {
+            unwrap_or_exit(do_put(resolve_api(&cfg, target), file, name, ttl));
+        }
+        Commands::Get { target, id, output, force } => {
+            unwrap_or_exit(do_get(resolve_api(&cfg, target), id, output, force));
+        }
+        Commands::History { target, json, action } => {
+            let api = resolve_api(&cfg, target);
+            unwrap_or_exit(match action {
+                None => do_history_list(api, json),
+                Some(HistoryAction::Rm { id }) => do_history_rm(api, id),
+                Some(HistoryAction::Clear) => do_history_clear(api),
+            });
         }
         Commands::Paste { remote, server, token, namespace, socket, session, input, input_cmd, text, verbose }
         | Commands::Up { remote, server, token, namespace, socket, session, input, input_cmd, text, verbose } => {
@@ -816,6 +1199,47 @@ fn resolve_remote(
     Ok(r)
 }
 
+fn resolve_api(cfg: &ConfigFile, target: Target) -> Api {
+    let remote = unwrap_or_exit(resolve_remote(cfg, target.remote, target.server, target.token));
+    Api { remote, namespace: target.namespace }
+}
+
 fn unwrap_or_exit<T>(r: Result<T, String>) -> T {
     r.unwrap_or_else(|e| { eprintln!("error: {e}"); std::process::exit(1); })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hostile_names_resolve_inside_the_target_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().to_str().unwrap();
+        for hostile in ["../../etc/passwd", "/etc/passwd", "..\\..\\boot.ini", "a/b/../../c", "..", "sub/"] {
+            let dest = resolve_dest(Some(target), hostile);
+            assert_eq!(dest.parent(), Some(dir.path()), "{hostile:?} → {}", dest.display());
+            let leaf = dest.file_name().unwrap().to_str().unwrap();
+            assert!(!leaf.contains('/') && !leaf.contains('\\') && leaf != "..", "{hostile:?} → {leaf}");
+        }
+        assert_eq!(resolve_dest(Some(target), "../../etc/passwd"), dir.path().join("passwd"));
+        assert_eq!(resolve_dest(None, "../x/report.pdf"), PathBuf::from("./report.pdf"));
+    }
+
+    #[test]
+    fn explicit_output_path_is_used_as_given() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("out.bin");
+        assert_eq!(resolve_dest(Some(file.to_str().unwrap()), "../evil"), file);
+    }
+
+    #[test]
+    fn remaining_time_and_size_formatting() {
+        assert_eq!(format_remaining(59_000), "59s");
+        assert_eq!(format_remaining(250_000), "4m10s");
+        assert_eq!(format_remaining(86_340_000), "23h59m");
+        assert_eq!(format_remaining(90_000_000), "1d01h");
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(1_048_576), "1.0 MiB");
+    }
 }

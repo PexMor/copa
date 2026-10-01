@@ -5,6 +5,11 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useMqtt } from '../hooks/useMqtt';
 import { QRDisplay } from './QRDisplay';
 import { QRScanner } from './QRScanner';
+import { HistoryPanel } from './HistoryPanel';
+import { useCapabilities } from '../hooks/useCapabilities';
+import { useHistory } from '../hooks/useHistory';
+import { useFileUpload } from '../hooks/useFileUpload';
+import { formatSize } from '../utils/api';
 
 const POLL_OPTIONS = [
   { label: '2s', ms: 2000 },
@@ -60,6 +65,50 @@ export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, 
 
   const liveStatus = isMqtt ? mqttStatus : wsStatus;
 
+  // History and files: only when the copa server reports support (null for
+  // older servers and MQTT, which keep today's behaviour).
+  const caps = useCapabilities(copaServer, namespace);
+  const historyEnabled = !!caps?.history && caps.read !== false;
+  const { items: historyItems, now: historyNow, refresh: refreshHistory } = useHistory({
+    server: copaServer,
+    namespace,
+    enabled: historyEnabled,
+    live: liveEnabled,
+  });
+  const canUpload = !!copaServer && !!caps?.files && caps.write !== false;
+  const { uploads, upload, dismiss: dismissUpload } = useFileUpload({
+    server: copaServer,
+    namespace,
+    caps,
+    onDone: (name) => { onToast(`Uploaded ${name}`, 'ok'); refreshHistory(); },
+    onError: (message) => onToast(message, 'err'),
+  });
+  const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const hasFiles = (dt: DataTransfer | null) => !!dt && Array.from(dt.types).includes('Files');
+
+  const handleDragOver = (e: DragEvent) => {
+    if (!canUpload || !hasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    setDragging(true);
+  };
+
+  const handleDrop = (e: DragEvent) => {
+    if (!canUpload || !hasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    setDragging(false);
+    if (e.dataTransfer?.files.length) upload(e.dataTransfer.files);
+  };
+
+  // A pasted file (e.g. a screenshot) becomes a file item; pasted text is left alone.
+  const handlePasteEvent = (e: ClipboardEvent) => {
+    const files = e.clipboardData?.files;
+    if (!canUpload || !files || files.length === 0) return;
+    e.preventDefault();
+    upload(files);
+  };
+
   // Auto-enable live mode when switching to MQTT server
   useEffect(() => {
     if (isMqtt) setLiveEnabled(true);
@@ -93,6 +142,7 @@ export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, 
       await push();
       if (clipStatus === 'error') onToast('Push failed', 'err');
       else onToast('Pushed', 'ok');
+      refreshHistory();
     }
   };
 
@@ -144,7 +194,14 @@ export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, 
   const noKey = isMqtt && !mqttServer?.aesKey;
 
   return (
-    <div class="card">
+    <>
+    <div
+      class={`card${dragging ? ' dragging' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={() => setDragging(false)}
+      onDrop={handleDrop}
+      onPaste={handlePasteEvent}
+    >
       <div class="panel-top">
         {isMqtt ? (
           <div class="ns-row">
@@ -197,7 +254,49 @@ export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, 
             <input type="checkbox" checked={autoSendOnScan} onChange={(e) => setAutoSendOnScan((e.target as HTMLInputElement).checked)} />
             Auto-send
           </label>
+          {canUpload && (
+            <>
+              <button class="btn-sm" onClick={() => fileInputRef.current?.click()}>Upload file</button>
+              <input
+                ref={fileInputRef}
+                class="file-input"
+                type="file"
+                multiple
+                aria-label="Choose files to upload"
+                onChange={(e) => {
+                  const input = e.target as HTMLInputElement;
+                  if (input.files?.length) upload(input.files);
+                  input.value = '';
+                }}
+              />
+            </>
+          )}
         </div>
+
+        {canUpload && (
+          <p class="drop-hint muted">
+            Drop or paste files here to share them
+            {caps?.max_file_size !== undefined && ` (up to ${formatSize(caps.max_file_size)} each)`}.
+          </p>
+        )}
+
+        {uploads.length > 0 && (
+          <ul class="uploads">
+            {uploads.map((u) => (
+              <li key={u.key} class="upload-row">
+                <span class="upload-name">{u.name}</span>
+                {u.error ? (
+                  <>
+                    <span class="upload-error">{u.error}</span>
+                    <button class="btn-sm" onClick={() => dismissUpload(u.key)}>Dismiss</button>
+                  </>
+                ) : (
+                  <progress value={u.loaded} max={u.total || 1} aria-label={`Uploading ${u.name}`} />
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
 
         <div class="sync-row">
           <button
@@ -235,5 +334,19 @@ export function ClipboardPanel({ server, namespace, onNamespaceChange, onToast, 
       <QRDisplay content={content} />
       {scanning && <QRScanner onScan={handleScan} onClose={() => setScanning(false)} />}
     </div>
+
+    {copaServer && historyEnabled && (
+      <HistoryPanel
+        server={copaServer}
+        namespace={namespace}
+        items={historyItems}
+        now={historyNow}
+        canWrite={caps?.write !== false}
+        onRefresh={refreshHistory}
+        onLoadText={setCopaContent}
+        onToast={onToast}
+      />
+    )}
+    </>
   );
 }

@@ -555,3 +555,60 @@ button:hover:not(:disabled) { opacity: .85; }
 .err { color: var(--danger); font-size: .8rem; }
 .ok { color: var(--success); font-size: .8rem; }
 code { background: var(--border); padding: .1em .3em; border-radius: 4px; font-family: monospace; font-size: .85em; }
+
+/* File upload */
+.card.dragging { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.drop-hint { font-size: .72rem; }
+.file-input { display: none; }
+.uploads { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
+.upload-row { display: flex; align-items: center; gap: .5rem; font-size: .8rem; }
+.upload-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-row progress { width: 6rem; height: .5rem; accent-color: var(--accent); }
+.upload-error { color: var(--danger); flex: 2; min-width: 0; font-size: .75rem; }
+
+/* History */
+.history-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.history-head h2 { margin-bottom: 0; }
+.history-empty { font-size: .8rem; margin-top: .5rem; }
+.history-list { list-style: none; margin: .5rem 0 0; padding: 0; }
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .5rem 0;
+  border-top: 1px solid var(--border);
+}
+.history-kind {
+  flex-shrink: 0;
+  width: 2.6rem;
+  text-align: center;
+  font-size: .65rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: .15rem 0;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.history-kind-file { color: var(--accent); border-color: var(--accent); }
+.history-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .1rem; }
+.history-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
+.history-link {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: .85rem;
+}
+.history-link:hover { color: var(--accent); }
+.history-meta { font-size: .7rem; }
+.history-actions { display: flex; gap: .3rem; flex-shrink: 0; }
+@media (max-width: 480px) {
+  .history-item { flex-wrap: wrap; }
+  .history-actions { width: 100%; justify-content: flex-end; }
+}

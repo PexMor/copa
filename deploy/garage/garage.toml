@@ -1,0 +1,24 @@
+# Single-node Garage for copa file sharing (reference / testing).
+# Secrets are NOT in this file: the RPC secret comes from GARAGE_RPC_SECRET
+# (generated into .env by init.sh).
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir     = "/var/lib/garage/data"
+db_engine    = "sqlite"
+
+replication_factor = 1
+
+# RPC is only used inside the container (CLI → daemon); the port is not published.
+rpc_bind_addr   = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+s3_region     = "garage"
+api_bind_addr = "[::]:3900"
+# Path-style addressing only (http://host/bucket/key): one hostname is enough
+# behind a reverse proxy. Do not set root_domain.
+
+# Deliberately absent:
+#   [s3_web]  — no static website hosting, the bucket is never public
+#   [admin]   — no admin HTTP API; administration goes through `garage` CLI
+#               inside the container (docker compose exec garage /garage …)

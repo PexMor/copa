@@ -1,0 +1,37 @@
+# Cloudflare Tunnel (cloudflared) ingress for copasrv and the Garage S3 API.
+#
+#   cloudflared tunnel create copa
+#   cloudflared tunnel route dns copa copa.example.com
+#   cloudflared tunnel route dns copa s3.example.com
+#   cloudflared tunnel --config cloudflared.yml run
+#
+# Check:  cloudflared tunnel --config cloudflared.yml ingress validate
+#
+# Notes
+#   - No inbound ports are opened; copasrv and Garage stay bound to 127.0.0.1.
+#   - Cloudflare terminates TLS, so clients use https:// for both hostnames:
+#       [server.storage] public_url = "https://s3.example.com"
+#                        endpoint   = "http://127.0.0.1:3900"
+#   - Request bodies are limited to 100 MB on Free/Pro plans. copa's default
+#     max_file_size (50 MiB) is below that; do not raise it past your plan's limit.
+#   - Presigned URLs are signed over Host + path + query. Do NOT enable
+#     Cloudflare features that rewrite them for the S3 hostname (Transform
+#     Rules, URL normalization "to origin", caching with query-string sorting).
+#     The httpHostHeader below pins the Host the origin sees to the public name.
+#   - WebSockets (/ws, /ws/events) work through tunnels without extra settings.
+
+tunnel: copa
+credentials-file: /etc/cloudflared/copa.json
+
+ingress:
+  - hostname: copa.example.com
+    service: http://127.0.0.1:8080
+
+  - hostname: s3.example.com
+    service: http://127.0.0.1:3900
+    originRequest:
+      httpHostHeader: s3.example.com
+      # stream uploads instead of buffering them in cloudflared
+      disableChunkedEncoding: true
+
+  - service: http_status:404

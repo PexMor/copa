@@ -1,0 +1,54 @@
+# Reference S3-compatible backend for copa file sharing.
+#
+#   ./init.sh                 start + bootstrap (bucket, key, CORS), prints [server.storage]
+#   docker compose down       stop (data is kept in named volumes)
+#   docker compose down -v    stop and wipe all data
+#
+# Only the S3 API is published, and only on loopback. Put a reverse proxy in
+# front of it to reach it from the internet (see proxy/ and README.md).
+
+services:
+  garage:
+    image: ${GARAGE_IMAGE:-dxflrs/garage:v2.1.0}
+    restart: unless-stopped
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?run ./init.sh first (it generates .env)}
+    ports:
+      # S3 API — loopback only unless COPA_S3_BIND says otherwise (LAN testing,
+      # see `make verify-s3`). RPC (3901) is intentionally NOT published.
+      - "${COPA_S3_BIND:-127.0.0.1}:${COPA_S3_PORT:-3900}:3900"
+    volumes:
+      - ./garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 3s
+
+  # Optional TLS reverse proxy for copasrv + S3 API:  docker compose --profile caddy up -d
+  caddy:
+    image: caddy:2
+    profiles: ["caddy"]
+    restart: unless-stopped
+    # Host networking: Caddy must reach copasrv and Garage on the host's loopback.
+    network_mode: host
+    environment:
+      COPA_HOST: ${COPA_HOST:-copa.localhost}
+      COPA_S3_HOST: ${COPA_S3_HOST:-s3.localhost}
+      COPA_HTTPS_PORT: ${COPA_HTTPS_PORT:-8443}
+      COPA_UPSTREAM: ${COPA_UPSTREAM:-127.0.0.1:8080}
+      COPA_S3_UPSTREAM: 127.0.0.1:${COPA_S3_PORT:-3900}
+      COPA_LOCAL_CERTS: ${COPA_LOCAL_CERTS:-}
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  garage-meta:
+  garage-data:
+  caddy-data:
+  caddy-config:

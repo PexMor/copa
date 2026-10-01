@@ -17,7 +17,10 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (url.pathname.startsWith('/api') || url.pathname === '/ws') return;
+  // Never touch other origins (object-store uploads/downloads via presigned
+  // URLs, a copasrv on another host) or anything that is not a plain GET.
+  if (url.origin !== self.location.origin || e.request.method !== 'GET') return;
+  if (url.pathname.startsWith('/api') || url.pathname.startsWith('/ws')) return;
   e.respondWith(
     caches.match(e.request).then((cached) => {
       const fresh = fetch(e.request).then((r) => {
