@@ -1,3 +1,4 @@
+import { recheckAfterFailure } from '../utils/access';
 import { useState } from 'preact/hooks';
 import type { AnyServer, CopaServer, GpsFormat, GpsPosition, MqttServer } from '../types';
 import { publishMqtt } from '../utils/mqttPublish';
@@ -85,6 +86,7 @@ export function GpsShare({ server, namespace, onToast }: Props) {
         if (!res.ok) throw new Error(`${res.status}`);
         onToast('Pushed!', 'ok');
       } catch {
+        recheckAfterFailure(copa.url);
         onToast('Push failed', 'err');
       }
     }

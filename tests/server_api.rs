@@ -687,3 +687,16 @@ fn reconcile_removes_orphans_but_keeps_referenced_objects() {
     assert!(keys.contains(&format!("copa/default/{kept}")));
     assert!(!keys.iter().any(|k| k.contains("leftover")));
 }
+
+#[test]
+fn version_endpoint_is_public_and_reports_build() {
+    let s = start();
+    let (status, body) = s.call("GET", "/api/version", "");
+    assert_eq!(status, 200);
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["name"], "copasrv");
+    assert_eq!(v["version"], copa::version::VERSION);
+    assert_eq!(v["protocol"], copa::version::PROTOCOL);
+    assert!(v["commit"].as_str().is_some_and(|c| !c.is_empty()));
+    assert!(v["built"].as_str().is_some_and(|b| b.ends_with('Z')));
+}

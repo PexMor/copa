@@ -1,4 +1,5 @@
 /// copasrv HTTP/WebSocket server
+pub mod access;
 pub mod auth;
 pub mod clipboard;
 pub mod config;
@@ -10,7 +11,7 @@ pub mod static_assets;
 pub mod ws;
 
 use axum::{
-    http::HeaderValue,
+    http::{header, HeaderValue},
     routing::{get, post},
     Router,
 };
@@ -20,7 +21,10 @@ use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 fn cors_layer(allowed_origins: &Option<Vec<String>>) -> Result<CorsLayer, String> {
-    let layer = CorsLayer::new().allow_headers(Any).allow_methods(Any);
+    let layer = CorsLayer::new()
+        .allow_headers(Any)
+        .allow_methods(Any)
+        .expose_headers([header::HeaderName::from_static(access::PROBE_HEADER)]);
     match allowed_origins {
         None => Ok(layer.allow_origin(Any)),
         Some(origins) => {
@@ -41,6 +45,9 @@ fn cors_layer(allowed_origins: &Option<Vec<String>>) -> Result<CorsLayer, String
 pub fn build_router(state: Arc<AppState>) -> Result<Router, String> {
     let cors = cors_layer(&state.allowed_origins)?;
     Ok(Router::new()
+        .route("/__access/probe", get(access::handle_probe))
+        .route("/__access/login", get(access::handle_login))
+        .route("/api/version", get(access::handle_version))
         .route("/api/clipboard", get(clipboard::handle_get).post(clipboard::handle_post))
         .route("/api/capabilities", get(history_api::handle_capabilities))
         .route("/api/history", get(history_api::handle_list).delete(history_api::handle_clear))

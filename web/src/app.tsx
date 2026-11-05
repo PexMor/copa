@@ -8,6 +8,8 @@ import { ClipboardPanel } from './components/ClipboardPanel';
 import { GpsShare } from './components/GpsShare';
 import { ShareableLink } from './components/ShareableLink';
 import { Toast } from './components/Toast';
+import { VersionFooter } from './components/VersionFooter';
+import { useServerVersion } from './hooks/useServerVersion';
 import type { WsStatus } from './hooks/useWebSocket';
 
 function randomId() {
@@ -132,6 +134,11 @@ export function App() {
   };
 
   const copaServer = activeServer?.type === 'copa' ? (activeServer as CopaServer) : null;
+  const serverVersion = useServerVersion(copaServer, wsStatus);
+
+  useEffect(() => {
+    if (serverVersion.compat?.kind === 'incompatible') addToast(serverVersion.compat.reason, 'err');
+  }, [serverVersion.compat?.kind, serverVersion.remote?.version]);
 
   return (
     <>
@@ -166,6 +173,8 @@ export function App() {
         onSave={handleSave}
         onDelete={handleDelete}
       />
+
+      <VersionFooter server={serverVersion} showServer={!!copaServer} />
 
       <Toast messages={toasts} onDismiss={dismissToast} />
     </>

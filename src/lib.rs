@@ -3,6 +3,7 @@ pub mod history;
 pub mod mqtt;
 pub mod server;
 pub mod storage;
+pub mod version;
 use rand::Rng;
 use serde::de::DeserializeOwned;
 use std::path::PathBuf;

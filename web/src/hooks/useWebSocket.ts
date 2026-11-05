@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Server } from '../types';
+import { canConnect } from '../utils/access';
 
 export type WsStatus = 'disconnected' | 'connecting' | 'connected';
 
@@ -54,7 +55,10 @@ export function useWebSocket({ server, namespace, enabled, onMessage }: UseWebSo
       ws.onclose = () => {
         if (cancelled || !enabledRef.current) return;
         setStatus('disconnected');
-        retryRef.current = setTimeout(connect, 3000);
+        // probe before reconnecting; stays paused if the session expired
+        void canConnect(server.url).then((ok) => {
+          if (ok && !cancelled && enabledRef.current) retryRef.current = setTimeout(connect, 3000);
+        });
       };
 
       ws.onerror = () => {

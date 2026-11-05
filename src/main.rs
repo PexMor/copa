@@ -10,7 +10,7 @@ use copa::{config_path, gen_token, now_ms};
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 #[derive(Parser, Debug)]
-#[command(name = "copasrv", about = "copa server — clipboard over HTTP with namespace support")]
+#[command(name = "copasrv", version = copa::version::LONG, about = "copa server — clipboard over HTTP with namespace support")]
 struct Cli {
     #[arg(short, long, env = "COPA_CONFIG")]
     config: Option<PathBuf>,
@@ -81,6 +81,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .unwrap_or_else(|e| die(&format!("bind {addr} failed: {e}")));
+    eprintln!("copasrv {} (protocol {})", copa::version::LONG, copa::version::PROTOCOL);
     eprintln!("listening on http://{addr}");
     if let Err(e) = serve(listener, state, cli.static_dir).await {
         die(&e);

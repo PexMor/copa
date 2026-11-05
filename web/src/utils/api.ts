@@ -1,3 +1,4 @@
+import { recheckAfterFailure } from './access';
 import type { Capabilities, CopaServer, FileDownload, HistoryItem } from '../types';
 
 export function apiHeaders(server: CopaServer, namespace: string): Record<string, string> {
@@ -14,10 +15,21 @@ export class ApiError extends Error {
 }
 
 async function request(server: CopaServer, namespace: string, path: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(`${server.url}${path}`, {
-    ...init,
-    headers: { ...apiHeaders(server, namespace), ...(init.headers as Record<string, string> | undefined) },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${server.url}${path}`, {
+      ...init,
+      headers: { ...apiHeaders(server, namespace), ...(init.headers as Record<string, string> | undefined) },
+    });
+  } catch (e) {
+    // a proxy redirect to the IdP surfaces as a network error
+    recheckAfterFailure(server.url);
+    throw e;
+  }
+  if ((res.headers.get('content-type') ?? '').includes('text/html')) {
+    recheckAfterFailure(server.url); // login page instead of API data
+    throw new ApiError(res.status, 'Unexpected HTML response');
+  }
   if (!res.ok) {
     let message = `${res.status}`;
     try {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { CopaServer, HistoryEvent, HistoryItem } from '../types';
 import { fetchHistory } from '../utils/api';
+import { canConnect } from '../utils/access';
 
 interface UseHistoryOpts {
   server: CopaServer | null;
@@ -57,7 +58,10 @@ export function useHistory({ server, namespace, enabled, live }: UseHistoryOpts)
         }
       };
       ws.onclose = () => {
-        if (activeRef.current) retry = setTimeout(connect, 3000);
+        if (!activeRef.current) return;
+        void canConnect(server.url).then((ok) => {
+          if (ok && activeRef.current) retry = setTimeout(connect, 3000);
+        });
       };
       ws.onerror = () => { ws?.close(); };
     };

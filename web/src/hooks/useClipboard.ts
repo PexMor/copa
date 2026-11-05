@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'preact/hooks';
 import type { CopaServer } from '../types';
+import { recheckAfterFailure } from '../utils/access';
 
 type Status = 'idle' | 'ok' | 'error';
 
@@ -8,6 +9,11 @@ function apiHeaders(server: CopaServer, namespace: string): HeadersInit {
     'Authorization': `Bearer ${server.token}`,
     'X-Copa-Namespace': namespace,
   };
+}
+
+/** The API answers text/plain; HTML means a proxy login page was served instead. */
+function isHtml(res: Response): boolean {
+  return (res.headers.get('content-type') ?? '').includes('text/html');
 }
 
 export function useClipboard(server: CopaServer | null, namespace: string) {
@@ -23,11 +29,13 @@ export function useClipboard(server: CopaServer | null, namespace: string) {
         headers: apiHeaders(server, namespace),
       });
       if (!res.ok) throw new Error(`${res.status}`);
+      if (isHtml(res)) { recheckAfterFailure(server.url); throw new Error('html'); }
       const text = await res.text();
       setContent(text);
       setLastSync(new Date());
       setStatus('ok');
     } catch {
+      recheckAfterFailure(server.url);
       setStatus('error');
     }
   }, [server, namespace]);
@@ -45,6 +53,7 @@ export function useClipboard(server: CopaServer | null, namespace: string) {
       setLastSync(new Date());
       setStatus('ok');
     } catch {
+      recheckAfterFailure(server.url);
       setStatus('error');
     }
   }, [server, namespace, content]);

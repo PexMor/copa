@@ -13,6 +13,7 @@
 ///   mqtt-get  one-shot: MQTT subscribe → first retained msg → decrypt → output
 ///   mqtt-sub  persistent: MQTT subscribe → decrypt → output, auto-reconnects
 use clap::{Parser, Subcommand};
+use copa::version::{self, Compat, VersionInfo};
 use copa::{config_path, load_config_file, now_ms, sanitize_filename, mqtt::{MqttServerCfg, build_mqtt_options, default_max_message_size, mqtt_client_id, mqtt_decrypt, mqtt_encrypt}};
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -344,6 +345,12 @@ async fn watch_once(
 ) -> anyhow::Result<()> {
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+    // Re-check on every (re)connect: the server may have been upgraded meanwhile.
+    let url_owned = server.to_owned();
+    if let Ok(Err(msg)) = tokio::task::spawn_blocking(move || check_server_version(&url_owned, &HashMap::new())).await {
+        eprintln!("copacli watch: warning: {msg}");
+    }
+
     // Convert http:// to ws:// if needed
     let ws_url = server
         .replacen("https://", "wss://", 1)
@@ -573,6 +580,59 @@ async fn mqtt_sub_once(
             Ok(Event::Incoming(Packet::Disconnect)) => return Ok(()),
             Ok(_) => {}
             Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
+// ── version check ─────────────────────────────────────────────────────────────
+
+/// `GET /api/version`. `Ok(None)` = server too old to have the endpoint.
+fn fetch_server_version(url: &str, headers: &HashMap<String, String>) -> Result<Option<VersionInfo>, String> {
+    let mut req = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .get(&format!("{}/api/version", url.trim_end_matches('/')));
+    for (k, v) in headers { req = req.set(k, v); }
+    match req.call() {
+        Ok(resp) => resp.into_json::<VersionInfo>().map(Some).map_err(|e| format!("bad /api/version response: {e}")),
+        Err(ureq::Error::Status(404, _)) => Ok(None),
+        Err(e) => Err(format!("version check failed: {e}")),
+    }
+}
+
+/// Err(message) only when the server is incompatible or predates versioning;
+/// transport errors are left to the real command to report.
+fn check_server_version(url: &str, headers: &HashMap<String, String>) -> Result<(), String> {
+    match fetch_server_version(url, headers) {
+        Ok(Some(remote)) => match version::compat(&VersionInfo::current("copacli"), &remote) {
+            Compat::Incompatible(why) => Err(format!("incompatible server {remote}: {why}")),
+            _ => Ok(()),
+        },
+        Ok(None) => Err("server does not report a version (older copasrv) — compatibility unknown".into()),
+        Err(_) => Ok(()),
+    }
+}
+
+/// `copacli version`: print both sides; exit 2 when incompatible.
+fn do_version(r: &Remote) -> Result<(), String> {
+    let local = VersionInfo::current("copacli");
+    println!("{local}  protocol {}", local.protocol);
+    match fetch_server_version(&r.url, &r.headers)? {
+        None => {
+            println!("server: no /api/version (older copasrv) — compatibility unknown");
+            std::process::exit(2);
+        }
+        Some(remote) => {
+            println!("{remote}  protocol {}", remote.protocol);
+            match version::compat(&local, &remote) {
+                Compat::Identical => println!("compatible (identical build)"),
+                Compat::Compatible => println!("compatible (different build)"),
+                Compat::Incompatible(why) => {
+                    println!("INCOMPATIBLE: {why}");
+                    std::process::exit(2);
+                }
+            }
+            Ok(())
         }
     }
 }
@@ -869,6 +929,7 @@ fn do_history_clear(api: Api) -> Result<(), String> {
 #[derive(Parser, Debug)]
 #[command(
     name = "copacli",
+    version = copa::version::LONG,
     about = "copa client — copy/paste/watch against a copasrv instance, or pub/get/sub via MQTT",
     long_about = "Examples:\n  \
       copacli copy -r local                          Download → tmux buffer\n  \
@@ -923,6 +984,11 @@ enum HistoryAction {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Show client and server versions and whether they are compatible (exit 2 if not)
+    Version {
+        #[command(flatten)]
+        target: Target,
+    },
     /// Download from server → output (default: tmux buffer)
     Copy {
         #[arg(short, long, env = "COPA_REMOTE")]
@@ -1130,6 +1196,10 @@ async fn main() {
     let cfg = load_config(cli.config);
 
     match cli.command {
+        Commands::Version { target } => {
+            let r = unwrap_or_exit(resolve_remote_unchecked(&cfg, target.remote, target.server, target.token));
+            unwrap_or_exit(do_version(&r));
+        }
         Commands::Copy { remote, server, token, namespace, socket, session, output, output_cmd, item, verbose }
         | Commands::Down { remote, server, token, namespace, socket, session, output, output_cmd, item, verbose } => {
             let r = resolve_remote(&cfg, remote, server, token);
@@ -1185,7 +1255,22 @@ async fn main() {
     }
 }
 
+/// Resolve the remote and, as a side effect, compare versions with the server
+/// (once per invocation): a protocol mismatch is warned about on stderr.
 fn resolve_remote(
+    cfg: &ConfigFile,
+    remote: Option<String>,
+    server: Option<String>,
+    token: Option<String>,
+) -> Result<Remote, String> {
+    let r = resolve_remote_unchecked(cfg, remote, server, token)?;
+    if let Err(msg) = check_server_version(&r.url, &r.headers) {
+        eprintln!("warning: {msg}");
+    }
+    Ok(r)
+}
+
+fn resolve_remote_unchecked(
     cfg: &ConfigFile,
     remote: Option<String>,
     server: Option<String>,

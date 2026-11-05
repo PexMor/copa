@@ -612,3 +612,33 @@ code { background: var(--border); padding: .1em .3em; border-radius: 4px; font-f
   .history-item { flex-wrap: wrap; }
   .history-actions { width: 100%; justify-content: flex-end; }
 }
+
+/* Identity-proxy session gate */
+.access-screen, .access-overlay {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text); background: var(--bg);
+}
+.access-screen { min-height: 100vh; }
+.access-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0, 0, 0, 0.6); }
+.access-box {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 1.5rem; max-width: 22rem; text-align: center;
+  display: flex; flex-direction: column; gap: 0.75rem;
+}
+.access-box h2, .access-box p { margin: 0; }
+.access-btn {
+  background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+  padding: 0.6rem 1rem; font: inherit; cursor: pointer;
+}
+.access-link {
+  background: none; border: 0; color: var(--muted); font: inherit;
+  cursor: pointer; text-decoration: underline;
+}
+
+/* Version footer */
+.version-footer {
+  text-align: center; font-size: 0.75rem; color: var(--muted);
+  padding: 1rem 0.5rem; font-variant-numeric: tabular-nums;
+}
+.version-warn { color: #d97706; }
+.version-bad { color: var(--danger); font-weight: 600; }
