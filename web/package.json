@@ -9,17 +9,17 @@
     "icons": "./generate-icons.sh"
   },
   "dependencies": {
-    "mqtt": "^5.15.1",
-    "preact": "^10.25.4",
+    "mqtt": "^5.16.1",
+    "preact": "^11.1.1",
     "qr-scanner": "^1.4.2",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
-    "@preact/preset-vite": "^2.9.1",
-    "@types/qrcode": "^1.5.5",
-    "playwright": "^1.59.1",
-    "typescript": "^5.8.3",
-    "vite": "^6.3.4"
+    "@preact/preset-vite": "^2.10.6",
+    "@types/qrcode": "^1.5.6",
+    "playwright": "^1.64.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6"
   },
-  "packageManager": "yarn@4.14.1"
+  "packageManager": "yarn@4.18.1"
 }
