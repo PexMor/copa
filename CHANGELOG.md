@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-05
+
 ### Changed
 - **BREAKING (behaviour):** clipboard content now expires. Every item lives for
   `item_ttl_secs` (default 86400 = 24 h, per namespace); after that
@@ -36,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `server.allowed_origins` to restrict CORS
 - Reference Garage backend in `deploy/garage/` with Caddy, HAProxy and
   cloudflared examples; `make s3-up`, `make s3-down`, `make test-s3`
+
+## [0.1.0]
+
+### Added
 - Initial release
 - HTTP server with token authentication
 - Dual clipboard: tmux buffer + server-side clipboard
