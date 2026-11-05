@@ -1,5 +1,4 @@
 target/
-Cargo.lock
 web/dist/
 web/node_modules/
 web/.yarn/
