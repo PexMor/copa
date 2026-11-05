@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (and `SSL_CERT_FILE`), so servers behind a private CA work.
 
 ### Added
+- MQTT clipboard sharing in `copacli` and `copa-tray`
+- Ansible deployment (`ansible/`) and `make dist` cross-builds
 - Server-side clipboard history: `history_limit` items per namespace (default 20),
   `GET /api/history`, `GET`/`DELETE /api/history/{id}`, `DELETE /api/history`,
   optional `X-Copa-TTL` header, and a JSON event stream on `/ws/events`

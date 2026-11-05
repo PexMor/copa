@@ -1,0 +1,20 @@
+---
+- name: Load Cloudflare settings
+  ansible.builtin.include_vars:
+    file: "{{ copa_cf_file }}"
+    name: copa_cf
+  delegate_to: localhost
+  no_log: true
+
+- name: Purge Cloudflare cache
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/zones/{{ copa_cf.cf_zone_id }}/purge_cache"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ copa_cf.cf_api_key }}"
+    body_format: json
+    body: { purge_everything: true }
+  delegate_to: localhost
+  run_once: true
+  no_log: true
+  changed_when: true

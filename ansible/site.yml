@@ -1,0 +1,10 @@
+---
+# Deploy copa (copasrv + copacli + frontend + systemd --user unit).
+#
+#   ansible-playbook site.yml --tags preflight --check   # report only
+#   ansible-playbook site.yml --limit srv1                # deploy
+- name: Deploy copa
+  hosts: copa
+  gather_facts: true
+  roles:
+    - copa

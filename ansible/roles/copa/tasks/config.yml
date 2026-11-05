@@ -1,0 +1,58 @@
+---
+# copa_config_policy:
+#   keep      -> never modify; report
+#   install   -> create only if missing
+#   overwrite -> replace (backup first); preflight already required the confirmation token
+- name: Config kept (existing file untouched)
+  ansible.builtin.debug:
+    msg: "{{ copa_config_file }} exists - kept as is."
+  when: copa_config_policy == 'keep' and copa_rs.config.exists
+
+- name: Config missing (policy keep)
+  ansible.builtin.debug:
+    msg: >-
+      {{ copa_config_file }} is MISSING and policy is 'keep': the service will NOT be started.
+      Put a config at {{ copa_config_source | realpath }} and rerun with -e copa_config_policy=install,
+      or create the file on the host manually.
+  when: copa_config_policy == 'keep' and not copa_rs.config.exists
+
+- name: Install config (only if missing)
+  ansible.builtin.copy:
+    src: "{{ copa_config_source }}"
+    dest: "{{ copa_config_file }}"
+    mode: "0600"
+    force: false
+  no_log: true
+  diff: false
+  when: copa_config_policy == 'install' and not copa_rs.config.exists
+  notify: Restart copa service
+
+- name: Config exists, policy install - left untouched
+  ansible.builtin.debug:
+    msg: "{{ copa_config_file }} exists - policy 'install' does not replace it."
+  when: copa_config_policy == 'install' and copa_rs.config.exists
+
+- name: Back up existing config before approved overwrite
+  ansible.builtin.copy:
+    src: "{{ copa_config_file }}"
+    dest: "{{ copa_config_file }}.{{ ansible_facts['date_time']['iso8601_basic_short'] }}.bak"
+    remote_src: true
+    mode: "0600"
+    force: false
+  no_log: true
+  diff: false
+  when:
+    - copa_config_policy == 'overwrite'
+    - copa_rs.config.exists
+    - copa_rs.config.checksum != copa_src_stat.stat.checksum
+
+- name: Overwrite config (approved)
+  ansible.builtin.copy:
+    src: "{{ copa_config_source }}"
+    dest: "{{ copa_config_file }}"
+    mode: "0600"
+    force: true
+  no_log: true
+  diff: false
+  when: copa_config_policy == 'overwrite'
+  notify: Restart copa service

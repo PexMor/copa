@@ -1,0 +1,10 @@
+---
+# Cross-host defaults. Per-host/CLI overrides win (-e / host_vars / inventory).
+# See roles/copa/defaults/main.yml for the full list.
+
+# keep (default) | install | overwrite
+#   keep      never touch an existing config; if missing, report and don't start
+#   install   create the config from files/config/<host>.toml only if missing
+#   overwrite replace an existing config (backup first); requires
+#             -e copa_config_overwrite_confirm=<inventory_hostname>
+copa_config_policy: keep

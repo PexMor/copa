@@ -1,0 +1,69 @@
+---
+- name: Re-check config presence after config policy
+  ansible.builtin.stat:
+    path: "{{ copa_config_file }}"
+  check_mode: false
+  register: copa_cfg_final
+
+- name: Install systemd user unit
+  ansible.builtin.template:
+    src: copasrv.service.j2
+    dest: "{{ copa_unit_dir }}/{{ copa_service_name }}.service"
+    mode: "0644"
+  register: copa_unit_result
+  notify: Restart copa service
+
+- name: Enable lingering (explicitly requested)
+  ansible.builtin.command: "loginctl enable-linger {{ ansible_facts['user_id'] }}"
+  when:
+    - copa_enable_linger | bool
+    - (copa_linger.stdout | default('') | trim) != 'yes'
+  changed_when: true
+
+- name: Wait for user bus after enabling linger
+  ansible.builtin.wait_for:
+    path: "{{ copa_user_runtime_dir }}/bus"
+    timeout: 20
+  when: copa_enable_linger | bool and not ansible_check_mode
+
+- name: Report lingering
+  ansible.builtin.debug:
+    msg: >-
+      Lingering is '{{ copa_linger.stdout | default('unknown') | trim }}' for {{ ansible_facts['user_id'] }}:
+      the service stops when the last login session ends. Use -e copa_enable_linger=true to enable it.
+  when: not (copa_enable_linger | bool) and (copa_linger.stdout | default('') | trim) != 'yes'
+
+- name: Re-check user bus
+  ansible.builtin.stat:
+    path: "{{ copa_user_runtime_dir }}/bus"
+  check_mode: false
+  register: copa_bus_final
+
+- name: Decide whether the service can run
+  ansible.builtin.set_fact:
+    copa_service_runnable: "{{ copa_cfg_final.stat.exists and (copa_bus_final.stat.exists or ansible_check_mode) }}"
+
+- name: Service not started (reason)
+  ansible.builtin.debug:
+    msg: >-
+      {{ copa_service_name }} NOT started/enabled:
+      {{ 'config missing' if not copa_cfg_final.stat.exists else 'no systemd --user session (log in, or use -e copa_enable_linger=true)' }}.
+  when: not (copa_service_runnable | bool)
+
+- name: Reload, enable and start user service
+  ansible.builtin.systemd_service:
+    name: "{{ copa_service_name }}"
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: started
+  environment:
+    XDG_RUNTIME_DIR: "{{ copa_user_runtime_dir }}"
+  when: copa_service_runnable | bool
+
+- name: Flush handlers (restart if binary/frontend/unit/config changed)
+  ansible.builtin.meta: flush_handlers
+
+- name: Purge Cloudflare cache (opt-in)
+  ansible.builtin.include_tasks: purge.yml
+  when: copa_cf_purge | bool

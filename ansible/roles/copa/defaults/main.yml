@@ -1,0 +1,33 @@
+---
+# ── what to deploy ──────────────────────────────────────────────────────────
+copa_local_bin: "{{ playbook_dir }}/../bin"          # output of scripts/build-all.sh
+copa_arch_map:                                         # ansible_architecture -> bin/<arch>
+  x86_64: x86_64
+  aarch64: arm64
+  armv7l: armhf
+  armv8l: armhf                                        # 32-bit OS on a 64-bit Pi
+copa_binaries: [copasrv, copacli]
+
+# ── where it goes (all under the SSH user's $HOME) ──────────────────────────
+copa_home: "{{ ansible_facts['user_dir'] }}"
+copa_bin_dir: "{{ copa_home }}/.local/bin"
+copa_data_dir: "{{ copa_home }}/.local/share/copa"
+copa_frontend_dir: "{{ copa_data_dir }}/dist"
+copa_work_dir: "{{ copa_data_dir }}/work"
+copa_config_dir: "{{ copa_home }}/.config/copa"
+copa_config_file: "{{ copa_config_dir }}/config.toml"
+copa_unit_dir: "{{ copa_home }}/.config/systemd/user"
+copa_service_name: copasrv
+
+# ── config safety ───────────────────────────────────────────────────────────
+copa_config_policy: keep            # keep | install | overwrite
+copa_config_overwrite_confirm: ""   # must equal inventory_hostname for `overwrite`
+copa_config_source: "{{ role_path }}/../../files/config/{{ inventory_hostname }}.toml"
+
+# ── service ─────────────────────────────────────────────────────────────────
+copa_enable_linger: false           # loginctl enable-linger (survive logout / start at boot)
+copa_user_runtime_dir: "/run/user/{{ ansible_facts['user_uid'] }}"
+
+# ── optional Cloudflare cache purge (files/cloudflare.yml) ──────────────────
+copa_cf_purge: false
+copa_cf_file: "{{ role_path }}/../../files/cloudflare.yml"

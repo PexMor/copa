@@ -1,0 +1,52 @@
+---
+- name: Create directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ copa_bin_dir }}",      mode: "0755" }
+    - { path: "{{ copa_data_dir }}",     mode: "0755" }
+    - { path: "{{ copa_frontend_dir }}", mode: "0755" }
+    - { path: "{{ copa_work_dir }}",     mode: "0700" }
+    - { path: "{{ copa_config_dir }}",   mode: "0700" }
+    - { path: "{{ copa_unit_dir }}",     mode: "0755" }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Stat installed binaries
+  ansible.builtin.stat:
+    path: "{{ copa_bin_dir }}/{{ item }}"
+    get_checksum: true
+  loop: "{{ copa_binaries }}"
+  check_mode: false
+  register: copa_bin_stat
+
+- name: Keep previous binary as .prev when it differs
+  ansible.builtin.copy:
+    src: "{{ copa_bin_dir }}/{{ item.item }}"
+    dest: "{{ copa_bin_dir }}/{{ item.item }}.prev"
+    remote_src: true
+    mode: "0755"
+  loop: "{{ copa_bin_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+    extended: true
+  when:
+    - item.stat.exists
+    - item.stat.checksum != copa_local_stat.results[ansible_loop.index0].stat.checksum
+
+- name: Install binaries
+  ansible.builtin.copy:
+    src: "{{ copa_arch_dir }}/{{ item }}"
+    dest: "{{ copa_bin_dir }}/{{ item }}"
+    mode: "0755"
+  loop: "{{ copa_binaries }}"
+  notify: Restart copa service
+
+- name: Install frontend
+  ansible.builtin.copy:
+    src: "{{ copa_local_bin }}/frontend/"
+    dest: "{{ copa_frontend_dir }}/"
+    mode: preserve
+  notify: Restart copa service

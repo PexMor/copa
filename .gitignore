@@ -4,3 +4,7 @@ web/dist/
 web/node_modules/
 web/.yarn/
 web/public/icons/*.png
+bin/
+ansible/inventory.toml
+ansible/inventory.yml
+/.serena/

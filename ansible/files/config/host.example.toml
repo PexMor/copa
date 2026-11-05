@@ -1,0 +1,20 @@
+# Copy to files/config/<inventory_hostname>.toml (git-ignored) and edit.
+# Installed to ~/.config/copa/config.toml (mode 0600) ONLY when
+# copa_config_policy is `install` (file missing) or `overwrite` (approved).
+
+[server]
+port = 8082
+bind = "127.0.0.1"
+
+[server.namespaces.default]
+size_limit = 16384
+rw_token = "REPLACE_ME"          # generate: copasrv --generate-token
+
+[cli]
+default_remote = "work"
+
+[cli.remotes.work]
+url   = "https://copa.example.com"
+token = "REPLACE_ME"
+# Cloudflare Access service-token headers (Zero Trust -> Access -> Service Auth)
+headers = { "CF-Access-Client-Id" = "REPLACE_ME.access", "CF-Access-Client-Secret" = "REPLACE_ME" }

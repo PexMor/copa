@@ -1,0 +1,18 @@
+# cp inventory.example.toml inventory.toml   (inventory.toml is git-ignored)
+#
+# Hosts are deployed as the SSH user, everything lives in that user's $HOME
+# and runs under `systemd --user`. No root / become is needed.
+# Use your own real hostnames in inventory.toml only - never in tracked files.
+
+[copa.hosts.srv1]                      # x86_64
+ansible_host = "srv1.example.com"
+ansible_user = "deploy"
+
+[copa.hosts.pi1]                       # Raspberry Pi 3B+ (32-bit OS -> armhf)
+ansible_host = "pi1.example.com"
+ansible_user = "pi"
+
+# Per-host config source: files/config/<inventory_hostname>.toml
+# Per-host overrides, e.g.:
+#   copa_config_policy = "install"
+#   copa_enable_linger = true

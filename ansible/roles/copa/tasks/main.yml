@@ -1,0 +1,16 @@
+---
+- name: Preflight
+  ansible.builtin.import_tasks: preflight.yml
+  tags: [always, preflight]
+
+- name: Install binaries and frontend
+  ansible.builtin.import_tasks: install.yml
+  tags: [install]
+
+- name: Config policy
+  ansible.builtin.import_tasks: config.yml
+  tags: [config]
+
+- name: Service
+  ansible.builtin.import_tasks: service.yml
+  tags: [service]

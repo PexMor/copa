@@ -1,0 +1,9 @@
+---
+- name: Restart copa service
+  ansible.builtin.systemd_service:
+    name: "{{ copa_service_name }}"
+    scope: user
+    state: restarted
+  environment:
+    XDG_RUNTIME_DIR: "{{ copa_user_runtime_dir }}"
+  when: copa_service_runnable | default(false) | bool

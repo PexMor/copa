@@ -1,0 +1,8 @@
+# Real, host-specific/secret files are never committed. Only examples + docs.
+*
+!.gitignore
+!README.md
+!*.example.*
+!*/
+config/*
+!config/*.example.*

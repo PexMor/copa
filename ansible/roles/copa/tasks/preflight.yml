@@ -1,0 +1,107 @@
+---
+# Gate + report. Runs always (also with --check). Changes nothing on the host.
+- name: Validate config policy
+  ansible.builtin.assert:
+    that:
+      - copa_config_policy in ['keep', 'install', 'overwrite']
+      - copa_config_policy != 'overwrite' or copa_config_overwrite_confirm == inventory_hostname
+    fail_msg: >-
+      copa_config_policy must be keep|install|overwrite; 'overwrite' additionally needs
+      -e copa_config_overwrite_confirm={{ inventory_hostname }} (explicit approval, nothing was changed).
+    quiet: true
+
+- name: Map host architecture to build arch
+  ansible.builtin.assert:
+    that: ansible_facts['architecture'] in copa_arch_map
+    fail_msg: "Unsupported architecture '{{ ansible_facts['architecture'] }}' (supported: {{ copa_arch_map.keys() | list }})"
+    quiet: true
+
+- name: Set build arch and artifact paths
+  ansible.builtin.set_fact:
+    copa_arch: "{{ copa_arch_map[ansible_facts['architecture']] }}"
+    copa_arch_dir: "{{ copa_local_bin }}/{{ copa_arch_map[ansible_facts['architecture']] }}"
+
+- name: Stat local build artifacts
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    get_checksum: true
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  loop: "{{ (copa_binaries | map('regex_replace', '^(.*)$', copa_arch_dir ~ '/\\1') | list) + [copa_local_bin ~ '/frontend/index.html'] }}"
+  register: copa_local_stat
+
+- name: Fail if build artifacts are missing
+  ansible.builtin.fail:
+    msg: "Missing build artifact {{ item.item }} - run `make dist` (arch {{ copa_arch }}) first."
+  loop: "{{ copa_local_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not item.stat.exists
+
+- name: Stat local config source
+  ansible.builtin.stat:
+    path: "{{ copa_config_source }}"
+    get_checksum: true
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  no_log: true
+  register: copa_src_stat
+
+- name: Fail if the config source is required but absent
+  ansible.builtin.fail:
+    msg: >-
+      copa_config_policy={{ copa_config_policy }} needs {{ copa_config_source | realpath }}
+      (copy files/config/host.example.toml and edit it).
+  when: copa_config_policy in ['install', 'overwrite'] and not copa_src_stat.stat.exists
+
+- name: Fail if optional Cloudflare purge is requested without its file
+  ansible.builtin.stat:
+    path: "{{ copa_cf_file }}"
+  delegate_to: localhost
+  become: false
+  register: copa_cf_stat
+  failed_when: copa_cf_purge | bool and not copa_cf_stat.stat.exists
+  when: copa_cf_purge | bool
+
+- name: Stat remote state (config, frontend, work dir, unit, binary)
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    get_checksum: "{{ item.sum | default(false) }}"
+  check_mode: false
+  loop:
+    - { key: config,   path: "{{ copa_config_file }}", sum: true }
+    - { key: frontend, path: "{{ copa_frontend_dir }}/index.html" }
+    - { key: workdir,  path: "{{ copa_work_dir }}" }
+    - { key: unit,     path: "{{ copa_unit_dir }}/{{ copa_service_name }}.service" }
+    - { key: binary,   path: "{{ copa_bin_dir }}/copasrv" }
+    - { key: bus,      path: "{{ copa_user_runtime_dir }}/bus" }
+  loop_control:
+    label: "{{ item.key }}"
+  register: copa_remote_stat
+  no_log: true   # config checksum only; labels shown via report below
+
+- name: Query user lingering
+  ansible.builtin.command: "loginctl show-user {{ ansible_facts['user_id'] }} -p Linger --value"
+  register: copa_linger
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Index remote stat and remember config checksum
+  ansible.builtin.set_fact:
+    copa_rs: "{{ dict(copa_remote_stat.results | map(attribute='item.key') | zip(copa_remote_stat.results | map(attribute='stat'))) }}"
+  no_log: true
+
+- name: Preflight report
+  ansible.builtin.debug:
+    msg:
+      - "arch:       {{ ansible_facts['architecture'] }} -> {{ copa_arch }}"
+      - "config:     {{ copa_config_file }} {{ 'EXISTS' if copa_rs.config.exists else 'MISSING' }} (policy={{ copa_config_policy }})"
+      - "frontend:   {{ copa_frontend_dir }} {{ 'present' if copa_rs.frontend.exists else 'missing' }}"
+      - "work dir:   {{ copa_work_dir }} {{ 'present' if copa_rs.workdir.exists else 'missing' }}"
+      - "unit:       {{ copa_unit_dir }}/{{ copa_service_name }}.service {{ 'present' if copa_rs.unit.exists else 'missing' }}"
+      - "binary:     {{ copa_bin_dir }}/copasrv {{ 'present' if copa_rs.binary.exists else 'missing' }}"
+      - "user bus:   {{ 'available' if copa_rs.bus.exists else 'NOT running (no active user session)' }}"
+      - "linger:     {{ copa_linger.stdout | default('unknown') | trim or 'unknown' }}"

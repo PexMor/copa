@@ -1,6 +1,6 @@
 PREFIX ?= ~
 
-.PHONY: all help build release clean install uninstall tray-windows tray-windows-setup build-web dev-web clean-web build-all release-all deploy-docs s3-up s3-down test-s3 verify-s3
+.PHONY: dist dist-x86_64 dist-arm64 dist-armhf all help build release clean install uninstall tray-windows tray-windows-setup build-web dev-web clean-web build-all release-all deploy-docs s3-up s3-down test-s3 verify-s3
 
 all: help
 
@@ -13,6 +13,7 @@ help:
 	@echo "  copacli   Local client (copy/paste/watch)"
 	@echo ""
 	@echo "\033[1mTargets:\033[0m"
+	@echo "  \033[32mdist[-x86_64|-arm64|-armhf]\033[0m  Cross-build static/portable binaries + frontend into ./bin/"
 	@echo "  \033[32mbuild\033[0m               Build debug binaries"
 	@echo "  \033[32mrelease\033[0m             Build optimized release binaries"
 	@echo "  \033[32mclean\033[0m               Remove build artifacts"
@@ -94,3 +95,13 @@ tray-windows:
 tray-windows-setup:
 	rustup target add x86_64-pc-windows-gnu
 	@echo "Also run: sudo apt install mingw-w64"
+
+# Cross-build into ./bin/<arch>/ (see scripts/build-all.sh)
+dist:
+	scripts/build-all.sh
+dist-x86_64:
+	scripts/build-all.sh x86_64
+dist-arm64:
+	scripts/build-all.sh arm64
+dist-armhf:
+	scripts/build-all.sh armhf

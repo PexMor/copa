@@ -39,6 +39,22 @@ cargo build --release
 copasrv --generate-token
 ```
 
+## Cross-building
+
+```bash
+make dist            # x86_64, arm64, armhf + frontend → ./bin/
+make dist-armhf      # a single target (Raspberry Pi 3B+, 32-bit OS)
+scripts/build-all.sh --skip-web arm64
+```
+
+Output: `bin/<arch>/{copasrv,copacli}` and `bin/frontend/`. Requires `zig`, `cargo-zigbuild`,
+`yarn` and the rustup targets `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-gnu`,
+`armv7-unknown-linux-musleabihf` (the script prints the fix for anything missing).
+x86_64/armhf are static (musl); arm64 is dynamic and needs glibc >= 2.31.
+
+Deploy the result to hosts with Ansible: see [`ansible/README.md`](ansible/README.md)
+(config is never overwritten without explicit approval).
+
 ## Quick Start
 
 ### 1. Configure
