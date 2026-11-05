@@ -77,6 +77,7 @@
     - { key: unit,     path: "{{ copa_unit_dir }}/{{ copa_service_name }}.service" }
     - { key: binary,   path: "{{ copa_bin_dir }}/copasrv" }
     - { key: bus,      path: "{{ copa_user_runtime_dir }}/bus" }
+    - { key: storage_env, path: "{{ copa_storage_env_file }}" }
   loop_control:
     label: "{{ item.key }}"
   register: copa_remote_stat
@@ -94,6 +95,93 @@
     copa_rs: "{{ dict(copa_remote_stat.results | map(attribute='item.key') | zip(copa_remote_stat.results | map(attribute='stat'))) }}"
   no_log: true
 
+# ── optional storage ([server.storage]) ────────────────────────────────────
+- name: Stat local storage settings file
+  ansible.builtin.stat:
+    path: "{{ copa_storage_file }}"
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  register: copa_storage_file_stat
+  when: copa_storage_enabled | bool
+
+- name: Load local storage settings file
+  ansible.builtin.include_vars:
+    file: "{{ copa_storage_file }}"
+    name: copa_storage_filevars
+  delegate_to: localhost
+  no_log: true
+  when: copa_storage_enabled | bool and copa_storage_file_stat.stat.exists
+
+- name: Resolve effective storage settings (explicit variables win over the file)
+  ansible.builtin.set_fact:
+    copa_st:
+      public_url:        "{{ copa_storage_public_url        or (copa_storage_filevars.public_url | default('')) }}"
+      endpoint:          "{{ copa_storage_endpoint          or (copa_storage_filevars.endpoint | default('')) }}"
+      region:            "{{ copa_storage_region            or (copa_storage_filevars.region | default('')) }}"
+      bucket:            "{{ copa_storage_bucket            or (copa_storage_filevars.bucket | default('')) }}"
+      access_key_id:     "{{ copa_storage_access_key_id     or (copa_storage_filevars.access_key_id | default('')) }}"
+      secret_access_key: "{{ copa_storage_secret_access_key or (copa_storage_filevars.secret_access_key | default('')) }}"
+      key_prefix:        "{{ copa_storage_key_prefix        or (copa_storage_filevars.key_prefix | default('')) }}"
+      presign_ttl_secs:  "{{ copa_storage_presign_ttl_secs  or (copa_storage_filevars.presign_ttl_secs | default('')) }}"
+  no_log: true
+
+- name: Validate storage mode flags
+  ansible.builtin.assert:
+    that: not (copa_storage_enabled | bool and copa_storage_remove | bool)
+    fail_msg: "copa_storage_remove=true requires copa_storage_enabled=false (nothing was changed)."
+    quiet: true
+
+- name: Validate storage settings
+  ansible.builtin.assert:
+    that:
+      - copa_st.public_url | length > 0
+      - copa_st.public_url is match('^https?://[^/\s]+')
+      - copa_st.bucket | length > 0
+      - copa_st.access_key_id | length > 0
+      - copa_st.secret_access_key | length > 0
+      - "'\n' not in copa_st.secret_access_key and '\r' not in copa_st.secret_access_key"
+      - copa_st.key_prefix == '' or (copa_st.key_prefix | trim | length > 0)
+      - copa_st.presign_ttl_secs == '' or (copa_st.presign_ttl_secs | string is match('^[0-9]+$') and 1 <= (copa_st.presign_ttl_secs | int) <= 604800)
+      - >-
+        copa_st.public_url is match('^https://')
+        or copa_storage_allow_insecure | bool
+        or copa_st.public_url is match('^http://(127\.0\.0\.1|localhost|\[::1\])([:/]|$)')
+    fail_msg: >-
+      Invalid storage settings: public_url (http[s]://host), bucket, access_key_id and
+      secret_access_key are required; key_prefix must not be blank; presign_ttl_secs must be
+      1-604800; a non-loopback http:// public_url needs copa_storage_allow_insecure=true
+      (prefer https). Nothing was changed.
+    quiet: true
+  no_log: true
+  when: copa_storage_enabled | bool
+
+- name: Read remote config for storage checks
+  ansible.builtin.slurp:
+    src: "{{ copa_config_file }}"
+  register: copa_cfg_slurp
+  check_mode: false
+  no_log: true
+  when: (copa_storage_enabled | bool or copa_storage_remove | bool) and copa_rs.config.exists
+
+- name: Inspect [server.storage] in remote config
+  ansible.builtin.set_fact:
+    copa_storage_block_present: "{{ '# BEGIN ANSIBLE MANAGED [server.storage]' in copa_cfg_text }}"
+    copa_storage_unmanaged: >-
+      {{ (copa_cfg_text | regex_replace('(?s)# BEGIN ANSIBLE MANAGED \[server\.storage\].*?# END ANSIBLE MANAGED \[server\.storage\]', ''))
+         is search('(?m)^\s*\[\s*server\s*\.\s*storage\s*\]') }}
+  vars:
+    copa_cfg_text: "{{ (copa_cfg_slurp.content | b64decode) if copa_cfg_slurp.content is defined else '' }}"
+  no_log: true
+
+- name: Fail on an unmanaged [server.storage] section
+  ansible.builtin.fail:
+    msg: >-
+      {{ copa_config_file }} already has a hand-written [server.storage] section. Remove it (or
+      wrap it in the '# BEGIN/END ANSIBLE MANAGED [server.storage]' markers) and rerun.
+      Nothing was changed.
+  when: (copa_storage_enabled | bool or copa_storage_remove | bool) and copa_storage_unmanaged | default(false) | bool
+
 - name: Preflight report
   ansible.builtin.debug:
     msg:
@@ -105,3 +193,4 @@
       - "binary:     {{ copa_bin_dir }}/copasrv {{ 'present' if copa_rs.binary.exists else 'missing' }}"
       - "user bus:   {{ 'available' if copa_rs.bus.exists else 'NOT running (no active user session)' }}"
       - "linger:     {{ copa_linger.stdout | default('unknown') | trim or 'unknown' }}"
+      - "storage:    {{ 'ENABLED' if copa_storage_enabled | bool else ('REMOVE requested' if copa_storage_remove | bool else 'off') }}; managed block {{ 'present' if copa_storage_block_present | default(false) | bool else 'absent/unchecked' }}; env file {{ 'present' if copa_rs.storage_env.exists else 'missing' }}"

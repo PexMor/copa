@@ -1,0 +1,19 @@
+{% if copa_storage_enabled | bool %}
+[server.storage]
+public_url = {{ copa_st.public_url | to_json }}
+{% if copa_st.endpoint %}
+endpoint = {{ copa_st.endpoint | to_json }}
+{% endif %}
+{% if copa_st.region %}
+region = {{ copa_st.region | to_json }}
+{% endif %}
+bucket = {{ copa_st.bucket | to_json }}
+access_key_id = {{ copa_st.access_key_id | to_json }}
+{% if copa_st.key_prefix %}
+key_prefix = {{ copa_st.key_prefix | to_json }}
+{% endif %}
+{% if copa_st.presign_ttl_secs != '' %}
+presign_ttl_secs = {{ copa_st.presign_ttl_secs | int }}
+{% endif %}
+# secret_access_key is supplied via COPA_S3_SECRET_ACCESS_KEY ({{ copa_storage_env_file }})
+{% endif %}

@@ -1,0 +1,71 @@
+---
+# Manages ONLY the [server.storage] block of an existing config.toml and the 0600 env file
+# holding COPA_S3_SECRET_ACCESS_KEY. Everything else in the config is left untouched.
+# Off unless copa_storage_enabled (apply) or copa_storage_remove (remove).
+- name: Storage step
+  when: copa_storage_enabled | bool or copa_storage_remove | bool
+  block:
+    - name: Re-check config presence for storage
+      ansible.builtin.stat:
+        path: "{{ copa_config_file }}"
+      check_mode: false
+      register: copa_storage_cfg
+
+    - name: Storage skipped (no config on host)
+      ansible.builtin.debug:
+        msg: >-
+          {{ copa_config_file }} does not exist: storage settings were NOT applied. Install a config
+          first (-e copa_config_policy=install) and rerun.
+      when: not copa_storage_cfg.stat.exists
+
+    - name: Apply storage
+      when: copa_storage_cfg.stat.exists
+      block:
+        - name: Probe managed block change
+          ansible.builtin.blockinfile:
+            path: "{{ copa_config_file }}"
+            marker: "# {mark} ANSIBLE MANAGED [server.storage]"
+            state: "{{ 'present' if copa_storage_enabled | bool else 'absent' }}"
+            mode: "0600"
+            block: "{{ lookup('ansible.builtin.template', 'storage-block.toml.j2') }}"
+          check_mode: true
+          diff: false
+          register: copa_storage_probe
+
+        - name: Back up config before modifying the storage block
+          ansible.builtin.copy:
+            src: "{{ copa_config_file }}"
+            dest: "{{ copa_config_file }}.{{ ansible_facts['date_time']['iso8601_basic_short'] }}.bak"
+            remote_src: true
+            mode: "0600"
+            force: false
+          no_log: true
+          diff: false
+          when: copa_storage_probe.changed
+
+        - name: Manage [server.storage] block
+          ansible.builtin.blockinfile:
+            path: "{{ copa_config_file }}"
+            marker: "# {mark} ANSIBLE MANAGED [server.storage]"
+            state: "{{ 'present' if copa_storage_enabled | bool else 'absent' }}"
+            mode: "0600"
+            block: "{{ lookup('ansible.builtin.template', 'storage-block.toml.j2') }}"
+          notify: Restart copa service
+
+        - name: Install S3 secret env file
+          ansible.builtin.copy:
+            dest: "{{ copa_storage_env_file }}"
+            content: |
+              COPA_S3_SECRET_ACCESS_KEY={{ copa_st.secret_access_key | to_json(ensure_ascii=False) }}
+            mode: "0600"
+          no_log: true
+          diff: false
+          when: copa_storage_enabled | bool
+          notify: Restart copa service
+
+        - name: Remove S3 secret env file
+          ansible.builtin.file:
+            path: "{{ copa_storage_env_file }}"
+            state: absent
+          when: not (copa_storage_enabled | bool)
+          notify: Restart copa service

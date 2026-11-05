@@ -18,3 +18,7 @@ url   = "https://copa.example.com"
 token = "REPLACE_ME"
 # Cloudflare Access service-token headers (Zero Trust -> Access -> Service Auth)
 headers = { "CF-Access-Client-Id" = "REPLACE_ME.access", "CF-Access-Client-Secret" = "REPLACE_ME" }
+
+# File sharing via S3/Garage is NOT put here by Ansible: enable it with
+# -e copa_storage_enabled=true (see ../storage.example.yml); the [server.storage] block is
+# then managed in the existing config without replacing it.

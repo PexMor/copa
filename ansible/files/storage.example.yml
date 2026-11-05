@@ -1,0 +1,10 @@
+# Copy to files/storage.yml (git-ignored, keep mode 0600). Used with -e copa_storage_enabled=true.
+# Explicit -e copa_storage_<key>=... variables override these. Never commit real values.
+public_url: "https://s3.example.com"      # what clients reach (required)
+# endpoint: "http://127.0.0.1:3900"       # what copasrv itself uses (default: public_url)
+# region: "garage"
+bucket: "copa"                             # required
+access_key_id: "GK_REPLACE_ME"             # required
+secret_access_key: "REPLACE_ME"            # required; delivered via a 0600 env file, not config.toml
+# key_prefix: "copa/"                      # ONE prefix per copasrv instance!
+# presign_ttl_secs: 300

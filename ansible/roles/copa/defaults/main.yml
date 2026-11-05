@@ -31,3 +31,22 @@ copa_user_runtime_dir: "/run/user/{{ ansible_facts['user_uid'] }}"
 # ── optional Cloudflare cache purge (files/cloudflare.yml) ──────────────────
 copa_cf_purge: false
 copa_cf_file: "{{ role_path }}/../../files/cloudflare.yml"
+
+# ── optional S3 / presigned file sharing ([server.storage]) ─────────────────
+# Opt-in. Manages ONLY the [server.storage] block of an existing config.toml and a
+# 0600 env file with the secret. Values come from these variables and/or files/storage.yml
+# (explicit variables win). See files/storage.example.yml.
+copa_storage_enabled: false
+copa_storage_remove: false           # with copa_storage_enabled=false: remove block + env file
+copa_storage_allow_insecure: false   # allow http:// public_url on a non-loopback host
+copa_storage_file: "{{ role_path }}/../../files/storage.yml"
+copa_storage_env_file: "{{ copa_config_dir }}/storage.env"
+copa_storage_public_url: ""
+copa_storage_endpoint: ""
+copa_storage_region: ""
+copa_storage_bucket: ""
+copa_storage_access_key_id: ""
+copa_storage_secret_access_key: ""
+copa_storage_key_prefix: ""
+copa_storage_presign_ttl_secs: ""
+copa_storage_filevars: {}

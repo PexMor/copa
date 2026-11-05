@@ -6,6 +6,7 @@ Access secrets or API keys); only `*.example.*` and this README are tracked.
 | File | Purpose |
 |------|---------|
 | `config/<inventory_hostname>.toml` | copa `config.toml` for that host. Needed only when `copa_config_policy` is `install` or `overwrite`. May carry Cloudflare Access headers in `[cli.remotes.*].headers`. Start from `config/host.example.toml`. |
+| `storage.yml` | Optional. S3/Garage settings and secret for `-e copa_storage_enabled=true` (file sharing). Start from `storage.example.yml`; mode `0600`. |
 | `cloudflare.yml` | Optional. Cloudflare zone/API key for `-e copa_cf_purge=true` cache purge. Start from `cloudflare.example.yml`. |
 
 Tasks handling these files run with `no_log`. Keep file mode `0600`.

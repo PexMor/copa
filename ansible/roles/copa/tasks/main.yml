@@ -11,6 +11,10 @@
   ansible.builtin.import_tasks: config.yml
   tags: [config]
 
+- name: Storage (S3 / presigned file sharing)
+  ansible.builtin.import_tasks: storage.yml
+  tags: [storage]
+
 - name: Service
   ansible.builtin.import_tasks: service.yml
   tags: [service]

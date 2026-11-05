@@ -64,6 +64,34 @@ a login session the user bus is absent: pass `-e copa_enable_linger=true` (runs
 Known limitation: `copasrv` currently always reads `$HOME/.config/copa/config.toml` (its
 `--config`/`COPA_CONFIG` option is declared but ignored), so do not change `copa_config_dir`.
 
+## Optional: file sharing via S3 / Garage (`[server.storage]`)
+
+Extends a **running** instance with presigned-URL file sharing (see `../docs/FILES.md`) without
+replacing its config. Opt-in; with `copa_config_policy=keep` only the `[server.storage]` block is
+managed (between `# BEGIN/END ANSIBLE MANAGED [server.storage]` markers, a `0600` timestamped
+`config.toml.<ts>.bak` is made first) and the rest of the file stays byte-for-byte unchanged.
+The secret never enters `config.toml`: it is written to `~/.config/copa/storage.env` (`0600`) and
+loaded by the unit as `COPA_S3_SECRET_ACCESS_KEY`.
+
+```bash
+cp files/storage.example.yml files/storage.yml      # git-ignored; fill in, chmod 600
+ansible-playbook site.yml --limit srv1 -e copa_storage_enabled=true --check --diff
+ansible-playbook site.yml --limit srv1 -e copa_storage_enabled=true            # or: --tags storage
+ansible-playbook site.yml --limit srv1 -e copa_storage_remove=true             # remove block + secret
+```
+
+| Variable / `storage.yml` key | Meaning |
+|---|---|
+| `copa_storage_public_url` / `public_url` | what clients reach (required; `https` unless loopback, or `copa_storage_allow_insecure=true`) |
+| `copa_storage_bucket`, `..._access_key_id`, `..._secret_access_key` | required |
+| `copa_storage_endpoint`, `..._region`, `..._key_prefix`, `..._presign_ttl_secs` | optional (TTL 1-604800) |
+
+Explicit `-e copa_storage_*` variables override `files/storage.yml`. Preflight fails (nothing
+changed) on incomplete settings, on a hand-written `[server.storage]` outside the markers, or when
+no config exists on the host (the storage step is then skipped). A change restarts the service,
+which empties the in-memory history; use **one `key_prefix` per instance** because copasrv deletes
+unknown objects under its prefix. Provision Garage/CORS separately (`make s3-up`, `../deploy/garage/`).
+
 ## Optional: Cloudflare cache purge
 
 `cp files/cloudflare.example.yml files/cloudflare.yml`, fill in zone and API token, then add
