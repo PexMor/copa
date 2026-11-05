@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Ansible: opt-in management of the `[server.storage]` block on a running instance
+  (`-e copa_storage_enabled=true` / `--tags storage`, removal with
+  `copa_storage_remove=true`). Only the marked block is touched, a timestamped
+  `config.toml.<ts>.bak` is made first, and the S3 secret goes to a `0600` `storage.env`
+  loaded as `COPA_S3_SECRET_ACCESS_KEY` — see `ansible/README.md`
+- `make verify-s3` to try file sharing by hand on the local network (optional HTTPS)
+
+### Changed
+- `Cargo.lock` is now tracked and dependencies were updated
+- Web app: yarn 4.18.1 and all dependencies bumped to latest
+
 ## [0.3.0] - 2026-11-05
 
 ### Changed
@@ -38,6 +50,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `server.allowed_origins` to restrict CORS
 - Reference Garage backend in `deploy/garage/` with Caddy, HAProxy and
   cloudflared examples; `make s3-up`, `make s3-down`, `make test-s3`
+
+## [0.2.0]
+
+### Changed
+- Split into `copasrv` (server, no tmux dependency) and `copacli` (client); the single
+  `copa serve` / `copa cli` binary is gone
+
+### Added
+- Named clipboard namespaces with per-namespace `size_limit` and separate
+  `read_token` / `write_token` / `rw_token`, selected with `X-Copa-Namespace`
+- WebSocket push on `/ws` and `copacli watch` (auto-reconnect with exponential backoff)
+- Vite + Preact + TypeScript web app (`web/`, served with `--static-dir` / `COPA_STATIC_DIR`),
+  with a server list, Live toggle, shareable token links, installable PWA
+- Web app MQTT sharing (AES-256-GCM, interoperable with `copacli mqtt-*`), QR display and
+  scanner for sharing servers and AES keys, and GPS location sharing (geo:, Google Maps,
+  Mapy.cz, Apple Maps, OpenStreetMap)
+- `copa-tray`: Windows system-tray client — see `docs/WIN_USE.md` (`make tray-windows`)
 
 ## [0.1.0]
 
@@ -126,34 +155,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Future Considerations
 
 ### Potential Features
-- [ ] TLS/SSL support for HTTPS
-- [ ] Multiple clipboard slots/history
-- [ ] Clipboard content encryption
-- [ ] WebSocket support for live updates
+- [ ] TLS/SSL termination in `copasrv` (use a reverse proxy today)
+- [ ] Clipboard content encryption (MQTT payloads are already AES-256-GCM encrypted)
 - [ ] Browser extension
 - [ ] Mobile app
 - [ ] Clipboard content search
-- [ ] Content type detection (text/image/file)
 - [ ] Persistent storage backend (SQLite/PostgreSQL)
 - [ ] User authentication and multi-user support
-- [ ] Rate limiting and quota management
-- [ ] Clipboard expiration/TTL
+- [ ] Rate limiting and quota management beyond per-namespace size, history and file quotas
 - [ ] Audit logging
 - [ ] Prometheus metrics endpoint
-- [ ] Docker container image
-- [ ] Systemd service file
+- [ ] Docker container image for `copasrv`
 - [ ] Package for Homebrew, AUR, apt, etc.
 
 ### Known Limitations
-- Server-side clipboard is in-memory only (resets on restart)
-- Single server token (no per-user auth)
-- No clipboard history/versioning
-- Text-only (no binary/image support)
-- No clipboard encryption at rest
-- No rate limiting
-- No persistent storage
+- Clipboard text and history are in-memory only (reset on restart); files in the object store
+  are swept at startup
+- Single token per role and namespace (no per-user auth)
+- Text clipboard only; files are shared through S3-compatible storage, not the clipboard
+- No clipboard encryption at rest on the server
+- No request rate limiting
+- `copa-tray` is Windows-only
 
 ---
 
-[Unreleased]: https://github.com/yourusername/copa/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/yourusername/copa/releases/tag/v0.1.0
+[Unreleased]: https://github.com/PexMor/copa/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/PexMor/copa/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/PexMor/copa/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/PexMor/copa/releases/tag/v0.1.0

@@ -8,7 +8,7 @@
 |--------|------|
 | **`copasrv`** | HTTP/WebSocket server. Manages named clipboard namespaces and their history in memory; hands out presigned URLs for files. No tmux dependency. |
 | **`copacli`** | Local client. One-shot copy/paste, file `put`/`get`, `history`, and persistent `watch` mode. Handles all tmux, file, and platform-clipboard I/O. |
-| **`copa-tray`** | Windows system-tray client (separate build). Supports both HTTP and MQTT clipboard sharing. |
+| **`copa-tray`** | Windows system-tray client (separate build, `make tray-windows`; see [docs/WIN_USE.md](docs/WIN_USE.md)). Supports both HTTP and MQTT clipboard sharing. |
 
 The separation keeps the server's attack surface small — it stores bytes and pushes WebSocket events; it never touches tmux or runs subprocesses. File contents never pass through it either: clients upload and download directly to an S3-compatible store using short-lived presigned URLs.
 
@@ -22,7 +22,7 @@ The separation keeps the server's attack surface small — it stores bytes and p
 - **MQTT clipboard sharing** — `copacli mqtt-pub/mqtt-get/mqtt-sub` and copa-tray Upload/Download menu items; AES-256-GCM encrypted, interoperable with the web app; works with any MQTT broker over `mqtt://`, `mqtts://`, `ws://`, `wss://`
 - **Clipboard history** — each namespace keeps its recent items (default 20); list them, fetch an older one, delete them. Every item expires (default 24 h)
 - **File sharing** (optional) — `copacli put` / `get`, drag-and-drop in the web app; files go straight to S3-compatible storage via presigned URLs and are removed when they expire. See [docs/FILES.md](docs/FILES.md)
-- **Web UI** — namespace selector, Live WebSocket toggle, auto-pull, shareable token links, history list, file drop zone
+- **Web UI** — installable PWA: namespace selector, Live WebSocket toggle, auto-pull, shareable token links, history list, file drop zone, MQTT servers, QR sharing of servers and keys, GPS location sharing
 
 ## Installation
 
@@ -53,7 +53,8 @@ Output: `bin/<arch>/{copasrv,copacli}` and `bin/frontend/`. Requires `zig`, `car
 x86_64/armhf are static (musl); arm64 is dynamic and needs glibc >= 2.31.
 
 Deploy the result to hosts with Ansible: see [`ansible/README.md`](ansible/README.md)
-(config is never overwritten without explicit approval).
+(config is never overwritten without explicit approval; file sharing can be enabled on a running
+instance with `-e copa_storage_enabled=true`).
 
 ## Quick Start
 
@@ -176,7 +177,9 @@ COPA_REMOTE=work           # copacli default remote
 COPA_NAMESPACE=shared      # copacli default namespace
 COPA_SOCKET=/tmp/tmux-1000/default
 COPA_SESSION=main
-COPA_CONFIG=/path/to/config.toml
+COPA_CONFIG=/path/to/config.toml   # copasrv and copacli
+COPA_STATIC_DIR=web/dist           # copasrv: serve this web app instead of the embedded UI
+COPA_SERVER=http://host:8080       # copacli: server URL (overrides the remote)
 COPA_S3_SECRET_ACCESS_KEY=...   # copasrv: overrides [server.storage] secret_access_key
 
 # MQTT overrides (copacli + copa-tray)
@@ -196,6 +199,12 @@ copasrv
 
 # Override port / bind
 copasrv --port 9000 --bind 0.0.0.0
+
+# Use another config file (env: COPA_CONFIG)
+copasrv --config /etc/copa/config.toml
+
+# Serve the Vite web app instead of the embedded fallback UI (env: COPA_STATIC_DIR)
+copasrv --static-dir web/dist
 
 # Legacy: start with a single token (auto-creates "default" namespace)
 copasrv --token secret123
@@ -522,7 +531,10 @@ History and files need the Vite web app (`--static-dir web/dist` or the hosted c
 - **Live** checkbox — opens a WebSocket subscription; textarea updates instantly on every server-side change
 - **Direct sync** — copy/paste via browser Clipboard API
 - **Auto-pull** — polling fallback (2 / 5 / 10 / 30 s intervals)
-- **Servers panel** — manage multiple `copasrv` instances stored in IndexedDB
+- **Servers panel** — manage multiple `copasrv` instances and MQTT brokers stored in IndexedDB
+- **MQTT** — publish / subscribe through a broker with AES-256-GCM encryption, compatible with `copacli mqtt-*` and `copa-tray`
+- **QR codes** — show or scan a QR code to hand a server or AES key to another device
+- **GPS sharing** — send your position as a `geo:` URI or a Google Maps, Mapy.cz, Apple Maps or OpenStreetMap link
 - **Shareable link** — `#token=…&url=…` fragment that never reaches server logs
 
 ## tmux Integration
