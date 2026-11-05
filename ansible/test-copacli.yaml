@@ -1,0 +1,114 @@
+---
+# Verify the deployed copacli on every target host against its LIVE config
+# (the default ~/.config/copa/config.toml and its default_remote - no -r/-c overrides).
+#
+#   ansible-playbook test-copacli.yaml                 # all hosts in group `copa`
+#   ansible-playbook test-copacli.yaml --limit srv1    # one host
+#   ansible-playbook test-copacli.yaml --tags service  # only the role/service-state check
+#
+# Per host, one at a time (hosts may share one server, so paste/copy pairs must not interleave):
+#   1. copacli is installed and the config file exists
+#   2. `copacli paste "from-<hostname>-<YYYY-MM-DD_HH:mm:ss>"`
+#   3. `copacli copy -o -` returns exactly that text
+# Literal text and `-o -` are used, so tmux/X11 are not needed. The sandbox hosts
+# (local-server/local-client) run with HOME=copa_home, like their systemd unit does.
+#
+# Note: this overwrites the current clipboard content of the host's default remote.
+
+- name: Verify copacli with live configs
+  hosts: copa
+  serial: 1
+  gather_facts: true
+  vars:
+    t_home: "{{ copa_home | default(ansible_facts['user_dir']) }}"
+    t_bin: "{{ t_home }}/.local/bin/copacli"
+    t_cfg: "{{ t_home }}/.config/copa/config.toml"
+    t_env:
+      HOME: "{{ t_home }}"
+  tasks:
+    - name: Stat copacli and config
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: ["{{ t_bin }}", "{{ t_cfg }}"]
+      register: t_stat
+      tags: [always]
+
+    - name: copacli and config are present
+      ansible.builtin.assert:
+        that: t_stat.results | map(attribute='stat.exists') | min
+        fail_msg: >-
+          {{ inventory_hostname }}: missing {{ t_stat.results | rejectattr('stat.exists') | map(attribute='item') | list }}
+          (deploy with site.yml; the config needs copa_config_policy=install or a hand-made file).
+        quiet: true
+      tags: [always]
+
+    - name: Service state matches the role (server active+enabled, client stopped+disabled)
+      tags: [service]
+      block:
+        - name: Is a user bus available?
+          ansible.builtin.stat:
+            path: "/run/user/{{ ansible_facts['user_uid'] }}/bus"
+          register: t_bus
+        - name: Query service state
+          ansible.builtin.command: "systemctl --user show {{ copa_service_name | default('copasrv') }} -p ActiveState -p UnitFileState --value"
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['user_uid'] }}"
+          register: t_svc
+          changed_when: false
+          when: t_bus.stat.exists
+        - name: Check service state
+          ansible.builtin.assert:
+            that: >-
+              (t_svc.stdout_lines[0] == 'active' and t_svc.stdout_lines[1] == 'enabled')
+              if (copa_role | default('client')) == 'server'
+              else (t_svc.stdout_lines[0] != 'active' and t_svc.stdout_lines[1] != 'enabled')
+            fail_msg: "{{ inventory_hostname }} ({{ copa_role | default('client') }}): service {{ t_svc.stdout_lines }}"
+            quiet: true
+          when: t_bus.stat.exists
+          ignore_errors: true   # reported (ignored=N in the recap), must not block the copacli test
+        - name: No user bus
+          ansible.builtin.debug:
+            msg: "{{ inventory_hostname }}: no systemd --user session, service state not checked"
+          when: not t_bus.stat.exists
+
+    - name: Config path copacli actually resolves
+      ansible.builtin.command:
+        argv: [ "{{ t_bin }}", --print-config-path, copy ]
+      environment: "{{ t_env }}"
+      register: t_path
+      changed_when: false
+      tags: [paste]
+
+    - name: Timestamp on the host
+      ansible.builtin.command:
+        argv: [ date, "+%Y-%m-%d_%H:%M:%S" ]
+      register: t_ts
+      changed_when: false
+      tags: [paste]
+
+    - name: Upload `copacli paste "from-<hostname>-<timestamp>"`
+      ansible.builtin.command:
+        argv: [ "{{ t_bin }}", paste, "{{ t_text }}" ]
+      vars:
+        t_text: "from-{{ ansible_facts['hostname'] }}-{{ t_ts.stdout }}"
+      environment: "{{ t_env }}"
+      register: t_paste
+      changed_when: true
+      tags: [paste]
+
+    - name: Download `copacli copy -o -`
+      ansible.builtin.command:
+        argv: [ "{{ t_bin }}", copy, -o, "-" ]
+      environment: "{{ t_env }}"
+      register: t_copy
+      changed_when: false
+      tags: [paste]
+
+    - name: Downloaded text equals what was uploaded
+      vars:
+        t_text: "from-{{ ansible_facts['hostname'] }}-{{ t_ts.stdout }}"
+      ansible.builtin.assert:
+        that: t_copy.stdout | trim == t_text
+        fail_msg: "{{ inventory_hostname }}: pasted '{{ t_text }}' but copy returned '{{ t_copy.stdout | trim }}'"
+        success_msg: "{{ inventory_hostname }} OK: config {{ t_path.stdout }} -> '{{ t_text }}'"
+      tags: [paste]

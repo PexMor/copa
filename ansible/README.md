@@ -32,6 +32,25 @@ architecture is missing, the policy/token is invalid, or a required `files/` ent
 | `aarch64` | `arm64` | dynamic, needs glibc >= 2.31 |
 | `armv7l` / `armv8l` | `armhf` | Raspberry Pi 3B+ on a 32-bit OS; static musl. A 64-bit Pi OS is `aarch64`. |
 
+## Server or client per host
+
+Set `copa_role` per host in `inventory.toml` (default `client`; only hosts with `copa_role = "server"` run the service):
+
+```toml
+[copa.hosts.srv1]
+ansible_host = "srv1.example.com"
+copa_role = "server"     # service enabled and started
+
+[copa.hosts.pi1]
+ansible_host = "pi1.example.com"
+copa_role = "client"     # same files installed, service stopped and disabled
+```
+
+Both roles get `copasrv`, `copacli`, the frontend, the work dir, the unit and the config per the
+policy below; only the service (and linger) is server-only. On a client the service is stopped and
+disabled on every run, and it starts again only after you explicitly set `copa_role = "server"`. Override ad hoc with
+`-e copa_role=client --limit pi1`.
+
 ## Config is never overwritten without approval
 
 `~/.config/copa/config.toml` is governed by `copa_config_policy`:

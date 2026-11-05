@@ -1,5 +1,12 @@
 ---
 # Gate + report. Runs always (also with --check). Changes nothing on the host.
+- name: Validate host role
+  ansible.builtin.assert:
+    that:
+      - copa_role in ['server', 'client']
+    fail_msg: "copa_role must be server|client (got '{{ copa_role }}'). Nothing was changed."
+    quiet: true
+
 - name: Validate config policy
   ansible.builtin.assert:
     that:
@@ -185,6 +192,7 @@
 - name: Preflight report
   ansible.builtin.debug:
     msg:
+      - "role:       {{ copa_role }}{{ '' if copa_is_server | bool else ' (service will NOT be enabled/started)' }}"
       - "arch:       {{ ansible_facts['architecture'] }} -> {{ copa_arch }}"
       - "config:     {{ copa_config_file }} {{ 'EXISTS' if copa_rs.config.exists else 'MISSING' }} (policy={{ copa_config_policy }})"
       - "frontend:   {{ copa_frontend_dir }} {{ 'present' if copa_rs.frontend.exists else 'missing' }}"

@@ -4,15 +4,32 @@
 # and runs under `systemd --user`. No root / become is needed.
 # Use your own real hostnames in inventory.toml only - never in tracked files.
 
-[copa.hosts.srv1]                      # x86_64
+# copa_role decides what a host gets (default: "client"):
+#   "server"  everything installed, systemd --user service enabled and started
+#   "client"  everything installed too, but the service is stopped and disabled on every run
+
+[copa.hosts.srv1]                      # x86_64, runs the service
 ansible_host = "srv1.example.com"
 ansible_user = "deploy"
+copa_role = "server"
 
-[copa.hosts.pi1]                       # Raspberry Pi 3B+ (32-bit OS -> armhf)
+[copa.hosts.pi1]                       # Raspberry Pi 3B+ (32-bit OS -> armhf), client only
 ansible_host = "pi1.example.com"
 ansible_user = "pi"
+copa_role = "client"
 
 # Per-host config source: files/config/<inventory_hostname>.toml
 # Per-host overrides, e.g.:
 #   copa_config_policy = "install"
 #   copa_enable_linger = true
+
+# ── optional local sandbox pair for test-copacli.yaml (see README) ─────────
+# [copa.hosts.local-server]
+# ansible_connection = "local"
+# copa_role = "server"
+# copa_home = "{{ lookup('env', 'HOME') }}/.copa-test/server"
+# copa_unit_dir = "{{ lookup('env', 'HOME') }}/.config/systemd/user"
+# copa_service_name = "copasrv-test-server"
+# copa_config_policy = "install"
+#
+# [copa.hosts.local-client]            # same, with copa_role = "client", .../client, copasrv-test-client

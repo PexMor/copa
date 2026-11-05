@@ -14,6 +14,7 @@
 - name: Storage (S3 / presigned file sharing)
   ansible.builtin.import_tasks: storage.yml
   tags: [storage]
+  when: copa_is_server | bool
 
 - name: Service
   ansible.builtin.import_tasks: service.yml

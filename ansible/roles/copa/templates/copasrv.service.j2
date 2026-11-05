@@ -11,6 +11,7 @@ WorkingDirectory={{ copa_work_dir }}
 # NOTE: copasrv currently always reads $HOME/.config/copa/config.toml (COPA_CONFIG is declared but unused);
 # the variable is set so a non-default copa_config_dir works once that is fixed.
 Environment=COPA_CONFIG={{ copa_config_file }}
+Environment=HOME={{ copa_home }}
 Environment=COPA_STATIC_DIR={{ copa_frontend_dir }}
 {% if copa_storage_enabled | bool or (copa_rs.storage_env.exists and not (copa_storage_remove | bool)) %}
 EnvironmentFile=-{{ copa_storage_env_file }}

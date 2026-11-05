@@ -16,6 +16,7 @@
 - name: Enable lingering (explicitly requested)
   ansible.builtin.command: "loginctl enable-linger {{ ansible_facts['user_id'] }}"
   when:
+    - copa_is_server | bool
     - copa_enable_linger | bool
     - (copa_linger.stdout | default('') | trim) != 'yes'
   changed_when: true
@@ -24,14 +25,14 @@
   ansible.builtin.wait_for:
     path: "{{ copa_user_runtime_dir }}/bus"
     timeout: 20
-  when: copa_enable_linger | bool and not ansible_check_mode
+  when: copa_is_server | bool and copa_enable_linger | bool and not ansible_check_mode
 
 - name: Report lingering
   ansible.builtin.debug:
     msg: >-
       Lingering is '{{ copa_linger.stdout | default('unknown') | trim }}' for {{ ansible_facts['user_id'] }}:
       the service stops when the last login session ends. Use -e copa_enable_linger=true to enable it.
-  when: not (copa_enable_linger | bool) and (copa_linger.stdout | default('') | trim) != 'yes'
+  when: copa_is_server | bool and not (copa_enable_linger | bool) and (copa_linger.stdout | default('') | trim) != 'yes'
 
 - name: Re-check user bus
   ansible.builtin.stat:
@@ -41,13 +42,13 @@
 
 - name: Decide whether the service can run
   ansible.builtin.set_fact:
-    copa_service_runnable: "{{ copa_cfg_final.stat.exists and (copa_bus_final.stat.exists or ansible_check_mode) }}"
+    copa_service_runnable: "{{ copa_is_server | bool and copa_cfg_final.stat.exists and (copa_bus_final.stat.exists or ansible_check_mode) }}"
 
 - name: Service not started (reason)
   ansible.builtin.debug:
     msg: >-
       {{ copa_service_name }} NOT started/enabled:
-      {{ 'config missing' if not copa_cfg_final.stat.exists else 'no systemd --user session (log in, or use -e copa_enable_linger=true)' }}.
+      {{ 'host role is client' if not (copa_is_server | bool) else 'config missing' if not copa_cfg_final.stat.exists else 'no systemd --user session (log in, or use -e copa_enable_linger=true)' }}.
   when: not (copa_service_runnable | bool)
 
 - name: Reload, enable and start user service
@@ -60,6 +61,26 @@
   environment:
     XDG_RUNTIME_DIR: "{{ copa_user_runtime_dir }}"
   when: copa_service_runnable | bool
+
+- name: Stop and disable user service (client role)
+  ansible.builtin.systemd_service:
+    name: "{{ copa_service_name }}"
+    scope: user
+    daemon_reload: true
+    enabled: false
+    state: stopped
+  environment:
+    XDG_RUNTIME_DIR: "{{ copa_user_runtime_dir }}"
+  when:
+    - not (copa_is_server | bool)
+    - copa_bus_final.stat.exists
+
+- name: Client service not stopped (no user bus)
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} is a client but has no systemd --user session, so the service state
+      could not be changed; if it was enabled before it stays so until a user session exists. Rerun then.
+  when: not (copa_is_server | bool) and not copa_bus_final.stat.exists
 
 - name: Flush handlers (restart if binary/frontend/unit/config changed)
   ansible.builtin.meta: flush_handlers

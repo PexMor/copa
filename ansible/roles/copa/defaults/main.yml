@@ -6,6 +6,13 @@ copa_arch_map:                                         # ansible_architecture ->
   aarch64: arm64
   armv7l: armhf
   armv8l: armhf                                        # 32-bit OS on a 64-bit Pi
+# Role of the host (set per host in the inventory, or -e copa_role=client):
+# Both roles get the same files (copasrv, copacli, frontend, work dir, unit, config policy).
+#   server  the systemd --user service is enabled and started (restarted on changes)
+#   client  the service is stopped and disabled on every run (copacli is used against a server);
+#           it runs again only after the host is explicitly set to copa_role=server
+copa_role: client
+copa_is_server: "{{ copa_role == 'server' }}"
 copa_binaries: [copasrv, copacli]
 
 # ── where it goes (all under the SSH user's $HOME) ──────────────────────────
