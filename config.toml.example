@@ -66,6 +66,48 @@ write_token = "writer-token-here"
 # key_prefix        = "copa/"                    # one prefix per copasrv instance!
 # presign_ttl_secs  = 300                        # lifetime of upload/download URLs
 
+# Device tokens and pairing (optional) — see docs/WIDGET.md.
+# When enabled copasrv also accepts short-lived `v1.` device tokens that it
+# issued itself. The signing secret and the revocation list live in
+# <state_dir>/auth.json (mode 0600); set COPA_TOKEN_SECRET (>= 16 characters)
+# to supply the secret from the environment instead.
+# >>> pairing
+# [server.pairing]
+# enabled   = true
+# state_dir = "/var/lib/copa"        # default: ~/.local/state/copa
+# <<< pairing
+
+# Trusted token issuers (optional) — see docs/WIDGET.md, "Trusting a token service".
+# copasrv accepts JWT access tokens signed by these issuers (verified against the
+# keys at jwks_url). It never talks to the identity provider and never sees
+# refresh tokens. Claims decide the access: every matching rule grants its
+# access ("r", "w" or "rw") in its namespace; the rules of one token are unioned.
+# `scope` is matched per space-separated scope, arrays per element, `*` is a wildcard.
+# >>> issuers
+# [server.auth.issuers.hub]
+# iss         = "https://auth.example.com"            # must equal the token's `iss`
+# jwks_url    = "https://auth.example.com/jwks.json"  # https (http only for loopback)
+# audience    = "https://copa.example.com"            # this server's id; must be in the token's `aud`
+# algorithms  = ["ES256", "RS256"]                    # default; HS* and none are refused at startup
+# leeway_secs = 30                                    # clock skew for exp/nbf (max 300)
+#
+# [[server.auth.issuers.hub.map]]
+# claim     = "scope"
+# value     = "copa:shared:rw"
+# namespace = "shared"
+# access    = "rw"
+#
+# [[server.auth.issuers.hub.map]]
+# claim     = "groups"
+# value     = "copa-readers"
+# namespace = "shared"
+# access    = "r"
+# <<< issuers
+
+# Event-stream tickets need no configuration: a client with read access calls
+# POST /api/events/ticket and opens /ws/events?ticket=… within 30 seconds (one
+# use). `?token=` on /ws and /ws/events keeps working for static tokens.
+
 # ── Client (copacli) ──────────────────────────────────────────────────────────
 
 [cli]

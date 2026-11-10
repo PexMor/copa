@@ -1,4 +1,5 @@
 /// Token auth and namespace resolution
+use super::issuers::Decision;
 use super::state::{AppState, NamespaceState};
 use axum::{
     http::{header, HeaderMap, StatusCode},
@@ -33,6 +34,66 @@ fn token_matches(configured: &Option<String>, presented: &str) -> bool {
     }
 }
 
+/// What a credential allows in one namespace.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Perms {
+    pub read:  bool,
+    pub write: bool,
+    /// Unix ms at which the credential stops being valid; `None` for static tokens.
+    pub expires_ms: Option<u64>,
+    /// A valid credential that has no access to this namespace (answered with 403, not 401).
+    pub forbidden: bool,
+}
+
+impl Perms {
+    pub fn any(&self) -> bool {
+        self.read | self.write
+    }
+}
+
+/// Resolve a presented credential to permissions in `ns`.
+///
+/// Sources, in order: the namespace's static tokens (constant-time, unchanged
+/// cost), then device tokens (`v1.…`, pairing). Anything else grants nothing.
+pub fn perms(state: &AppState, ns: &NamespaceState, tok: &str) -> Perms {
+    let (read, write) = (can_read(ns, tok), can_write(ns, tok));
+    if read | write {
+        return Perms { read, write, expires_ms: None, forbidden: false };
+    }
+    dynamic_perms(state, ns, tok)
+}
+
+fn dynamic_perms(state: &AppState, ns: &NamespaceState, tok: &str) -> Perms {
+    if let (Some(tokens), true) = (&state.tokens, tok.starts_with(super::token::PREFIX)) {
+        return match tokens.verify(tok, state.now()) {
+            Ok(c) if c.ns == ns.name => Perms { read: c.can_read(), write: c.can_write(), expires_ms: Some(c.exp), forbidden: false },
+            Ok(c) => {
+                eprintln!("auth: device {} presented a token for namespace '{}' on '{}'", c.dev, c.ns, ns.name);
+                Perms::default()
+            }
+            Err(e) => {
+                eprintln!("auth: device token rejected: {e}");
+                Perms::default()
+            }
+        };
+    }
+    if let (Some(issuers), true) = (&state.issuers, super::issuers::looks_like_jwt(tok)) {
+        return match issuers.decide(&ns.name, tok, state.now()) {
+            Decision::Granted { read, write, exp_ms } => Perms { read, write, expires_ms: Some(exp_ms), forbidden: false },
+            Decision::NoMapping { .. } => {
+                eprintln!("auth: valid token has no mapping for namespace '{}'", ns.name);
+                Perms { forbidden: true, ..Perms::default() }
+            }
+            Decision::Rejected(reason) => {
+                eprintln!("auth: token rejected: {reason}");
+                Perms::default()
+            }
+        };
+    }
+    Perms::default()
+}
+
+/// Static-token check only (no dynamic sources).
 pub fn can_read(ns: &NamespaceState, tok: &str) -> bool {
     // `|` not `||`: always evaluate both comparisons
     token_matches(&ns.rw_token, tok) | token_matches(&ns.read_token, tok)
@@ -40,6 +101,15 @@ pub fn can_read(ns: &NamespaceState, tok: &str) -> bool {
 
 pub fn can_write(ns: &NamespaceState, tok: &str) -> bool {
     token_matches(&ns.rw_token, tok) | token_matches(&ns.write_token, tok)
+}
+
+/// 403 for a valid credential without access to the namespace, otherwise 401.
+pub fn denied(p: &Perms) -> Response {
+    if p.forbidden {
+        json_error(StatusCode::FORBIDDEN, "forbidden")
+    } else {
+        json_error(StatusCode::UNAUTHORIZED, "unauthorized")
+    }
 }
 
 pub fn json_error(status: StatusCode, msg: &str) -> Response {
@@ -64,21 +134,30 @@ pub fn authorize(
     params: &HashMap<String, String>,
     access: Access,
 ) -> Result<Arc<NamespaceState>, Response> {
+    authorize_with_perms(state, headers, params, access).map(|(ns, _)| ns)
+}
+
+/// Like [`authorize`], also returning what the credential allows (and when it expires).
+pub fn authorize_with_perms(
+    state: &AppState,
+    headers: &HeaderMap,
+    params: &HashMap<String, String>,
+    access: Access,
+) -> Result<(Arc<NamespaceState>, Perms), Response> {
     let ns_name = extract_ns_name(headers, params);
     let Some(ns) = state.namespaces.get(ns_name).cloned() else {
         return Err(json_error(StatusCode::NOT_FOUND, "namespace not found"));
     };
-    let tok = extract_bearer(headers);
-    let (r, w) = (can_read(&ns, tok), can_write(&ns, tok));
+    let p = perms(state, &ns, extract_bearer(headers));
     let ok = match access {
-        Access::Read => r,
-        Access::Write => w,
-        Access::Any => r | w,
+        Access::Read => p.read,
+        Access::Write => p.write,
+        Access::Any => p.any(),
     };
     if !ok {
-        return Err(json_error(StatusCode::UNAUTHORIZED, "unauthorized"));
+        return Err(denied(&p));
     }
-    Ok(ns)
+    Ok((ns, p))
 }
 
 #[cfg(test)]

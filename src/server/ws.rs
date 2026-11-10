@@ -1,5 +1,6 @@
 /// WebSocket endpoints: `/ws` (plain text content) and `/ws/events` (JSON item events)
-use super::auth::{can_read, can_write, extract_bearer, extract_ns_name};
+use super::auth::{authorize_with_perms, extract_bearer, extract_ns_name, json_error, perms, Access};
+use super::history_api::json_ok;
 use super::state::{AppState, NamespaceState};
 use axum::{
     extract::{
@@ -7,10 +8,11 @@ use axum::{
         Query, State,
     },
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use futures_util::{SinkExt, StreamExt};
-use std::{collections::HashMap, sync::Arc};
+use serde_json::json;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::broadcast;
 
 /// Token from the header, or `?token=` for clients that cannot set headers
@@ -36,8 +38,9 @@ pub async fn handle_ws_upgrade(
     };
 
     let effective = effective_token(&headers, &params);
-    let read_ok  = can_read(&ns, &effective);
-    let write_ok = can_write(&ns, &effective);
+    let caller   = perms(&state, &ns, &effective);
+    let read_ok  = caller.read;
+    let write_ok = caller.write;
 
     if !read_ok && !write_ok {
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
@@ -109,6 +112,23 @@ async fn ws_session(
     }
 }
 
+/// `POST /api/events/ticket` — a single-use ticket for `/ws/events?ticket=…`.
+/// Needs read access; the stream opened with it ends when the credential does.
+pub async fn handle_ticket(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Response {
+    let (ns, caller) = match authorize_with_perms(&state, &headers, &params, Access::Read) {
+        Ok(x) => x,
+        Err(resp) => return resp,
+    };
+    match state.issue_ticket(&ns.name, caller.expires_ms) {
+        Some((ticket, expires_at)) => json_ok(json!({ "ticket": ticket, "expires_at": expires_at })),
+        None => json_error(StatusCode::SERVICE_UNAVAILABLE, "too many outstanding tickets"),
+    }
+}
+
 pub async fn handle_events_upgrade(
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
@@ -119,16 +139,30 @@ pub async fn handle_events_upgrade(
     let Some(ns) = state.namespaces.get(&ns_name).cloned() else {
         return (StatusCode::NOT_FOUND, "namespace not found").into_response();
     };
-    if !can_read(&ns, &effective_token(&headers, &params)) {
+    // A ticket wins over `?token=`; both end at the credential's expiry.
+    let (allowed, ends_at_ms) = match params.get("ticket") {
+        Some(id) => match state.redeem_ticket(id, &ns.name) {
+            Some(t) => (true, t.cred_expires_ms),
+            None => (false, None),
+        },
+        None => {
+            let caller = perms(&state, &ns, &effective_token(&headers, &params));
+            (caller.read, caller.expires_ms)
+        }
+    };
+    if !allowed {
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
+    let close_after = ends_at_ms.map(|e| Duration::from_millis(e.saturating_sub(state.now())));
     eprintln!("WS /ws/events ns={ns_name}");
-    ws.on_upgrade(move |socket| events_session(socket, ns)).into_response()
+    // Subscribe *before* the upgrade response is sent: a client that sees the connection open and
+    // immediately pushes an item must not miss the resulting event.
+    let rx = ns.events.subscribe();
+    ws.on_upgrade(move |socket| events_session(socket, rx, close_after)).into_response()
 }
 
-async fn events_session(socket: WebSocket, ns: Arc<NamespaceState>) {
+async fn events_session(socket: WebSocket, mut rx: broadcast::Receiver<String>, close_after: Option<Duration>) {
     let (mut sender, mut receiver) = socket.split();
-    let mut rx = ns.events.subscribe();
 
     // Inbound frames are ignored; only watch for the client going away.
     let inbound = async move {
@@ -153,8 +187,17 @@ async fn events_session(socket: WebSocket, ns: Arc<NamespaceState>) {
         }
     };
 
+    // The credential that opened the stream is no longer valid: end it.
+    let expiry = async move {
+        match close_after {
+            Some(d) => tokio::time::sleep(d).await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+
     tokio::select! {
         _ = inbound  => {}
         _ = outbound => {}
+        _ = expiry   => {}
     }
 }

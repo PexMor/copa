@@ -1,5 +1,5 @@
 /// `/api/clipboard` — the original single-buffer API, now backed by history
-use super::auth::{can_read, can_write, extract_bearer, extract_ns_name};
+use super::auth::{denied, extract_bearer, extract_ns_name, perms};
 use super::state::AppState;
 use axum::{
     body::Bytes,
@@ -33,9 +33,10 @@ pub async fn handle_get(
     };
     let tok = extract_bearer(&headers).to_owned();
     let tok_q = params.get("token").map(String::as_str).unwrap_or("");
-    if !can_read(&ns, &tok) && !can_read(&ns, tok_q) {
-        eprintln!("GET /api/clipboard ns={ns_name} 401");
-        return (StatusCode::UNAUTHORIZED, r#"{"error":"unauthorized"}"#).into_response();
+    let caller = perms(&state, &ns, &tok);
+    if !caller.read && !perms(&state, &ns, tok_q).read {
+        eprintln!("GET /api/clipboard ns={ns_name} {}", if caller.forbidden { 403 } else { 401 });
+        return denied(&caller);
     }
     let content = ns.history().latest_text(state.now()).map(<[u8]>::to_vec).unwrap_or_default();
     eprintln!("GET /api/clipboard ns={ns_name} {} bytes", content.len());
@@ -54,9 +55,10 @@ pub async fn handle_post(
     };
     let tok = extract_bearer(&headers).to_owned();
     let tok_q = params.get("token").map(String::as_str).unwrap_or("");
-    if !can_write(&ns, &tok) && !can_write(&ns, tok_q) {
-        eprintln!("POST /api/clipboard ns={ns_name} 401");
-        return (StatusCode::UNAUTHORIZED, r#"{"error":"unauthorized"}"#).into_response();
+    let caller = perms(&state, &ns, &tok);
+    if !caller.write && !perms(&state, &ns, tok_q).write {
+        eprintln!("POST /api/clipboard ns={ns_name} {}", if caller.forbidden { 403 } else { 401 });
+        return denied(&caller);
     }
     if body.len() > ns.size_limit {
         eprintln!("POST /api/clipboard ns={ns_name} 413 {} > {}", body.len(), ns.size_limit);

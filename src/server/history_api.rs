@@ -1,5 +1,5 @@
 /// `/api/history` and `/api/capabilities`
-use super::auth::{authorize, can_read, can_write, extract_bearer, json_error, Access};
+use super::auth::{authorize, extract_bearer, json_error, perms, Access};
 use super::state::AppState;
 use crate::history::ItemKind;
 use axum::{
@@ -94,7 +94,7 @@ pub async fn handle_capabilities(
         Ok(ns) => ns,
         Err(resp) => return resp,
     };
-    let tok = extract_bearer(&headers);
+    let caller = perms(&state, &ns, extract_bearer(&headers));
     let history = ns.history();
     let limits = history.limits();
     let mut caps = json!({
@@ -103,8 +103,8 @@ pub async fn handle_capabilities(
         "item_ttl_secs": limits.item_ttl_ms / 1000,
         "size_limit":    ns.size_limit,
         "files":         ns.files,
-        "read":          can_read(&ns, tok),
-        "write":         can_write(&ns, tok),
+        "read":          caller.read,
+        "write":         caller.write,
     });
     if ns.files {
         caps["max_file_size"] = json!(limits.max_file_size);

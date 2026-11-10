@@ -679,6 +679,116 @@ fn api_error(e: ureq::Error) -> String {
     }
 }
 
+// ── pairing ───────────────────────────────────────────────────────────────────
+
+fn pair_time(ms: u64) -> String {
+    let secs = ms / 1000;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    if secs > now {
+        let left = secs - now;
+        if left >= 3600 { format!("in {}h {}m", left / 3600, (left % 3600) / 60) } else { format!("in {}m {}s", left / 60, left % 60) }
+    } else {
+        "expired".to_owned()
+    }
+}
+
+fn do_pair_open(api: Api, access: String, name: Option<String>, json: bool) -> Result<(), String> {
+    let body = serde_json::json!({ "access": access, "name": name });
+    let resp = api.req("POST", "/api/pair/windows").send_json(body).map_err(api_error)?;
+    let v: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+    if json {
+        println!("{v}");
+        return Ok(());
+    }
+    println!("Pairing window open for namespace '{}' (access {})", v["namespace"].as_str().unwrap_or("?"), v["access"].as_str().unwrap_or("?"));
+    println!();
+    println!("    code:  {}", v["display_code"].as_str().unwrap_or("?"));
+    println!("    valid: {}", pair_time(v["expires_at"].as_u64().unwrap_or(0)));
+    println!("    server: {}", api.remote.url);
+    println!();
+    println!("Enter the code in the widget (\"pairing\" with SPAKE2). For key-exchange pairing (ECDH) run");
+    println!("`copacli pair pending` and approve the device whose fingerprint matches its screen.");
+    Ok(())
+}
+
+fn pending_list(api: &Api) -> Result<Vec<serde_json::Value>, String> {
+    let v = api.get_json("/api/pair/pending").map_err(api_error)?;
+    Ok(v.as_array().cloned().unwrap_or_default())
+}
+
+fn do_pair_pending(api: Api, json: bool) -> Result<(), String> {
+    let list = pending_list(&api)?;
+    if json {
+        println!("{}", serde_json::Value::Array(list));
+        return Ok(());
+    }
+    if list.is_empty() {
+        println!("nothing is waiting for approval");
+        return Ok(());
+    }
+    for p in list {
+        println!("{}   fingerprint {}   window {}", p["id"].as_str().unwrap_or("?"), p["fingerprint"].as_str().unwrap_or("?"), p["window_id"].as_str().unwrap_or("?"));
+    }
+    println!();
+    println!("Approve only if the fingerprint equals the one shown on the device:  copacli pair approve <FINGERPRINT>");
+    Ok(())
+}
+
+/// Pick the pending pairing named by an id, an id prefix or the digits of its fingerprint.
+fn select_pending(list: &[serde_json::Value], which: &str) -> Result<String, String> {
+    let digits: String = which.chars().filter(|c| !c.is_whitespace() && *c != '-').collect();
+    let hits: Vec<&serde_json::Value> = list
+        .iter()
+        .filter(|p| {
+            let id = p["id"].as_str().unwrap_or("");
+            let fp: String = p["fingerprint"].as_str().unwrap_or("").chars().filter(|c| !c.is_whitespace()).collect();
+            id == which || (digits.len() >= 6 && id.starts_with(&digits)) || (digits.len() >= 8 && fp == digits)
+        })
+        .collect();
+    match hits.as_slice() {
+        [one] => Ok(one["id"].as_str().unwrap_or_default().to_owned()),
+        [] => Err(format!("no pending pairing matches '{which}' (see `copacli pair pending`)")),
+        _ => Err(format!("'{which}' matches several pairings; use the full id")),
+    }
+}
+
+fn do_pair_decide(api: Api, which: String, approve: bool, client_pub: Option<String>) -> Result<(), String> {
+    let id = select_pending(&pending_list(&api)?, &which)?;
+    let verb = if approve { "approve" } else { "reject" };
+    api.req("POST", &format!("/api/pair/pending/{id}/{verb}"))
+        .send_json(serde_json::json!({ "client_pub": client_pub }))
+        .map_err(|e| match e {
+            ureq::Error::Status(409, _) => "refused: the scanned key does not belong to this pairing".to_owned(),
+            other => api_error(other),
+        })?;
+    println!("{}", if approve { "approved — the device receives its credential on its next poll" } else { "rejected" });
+    Ok(())
+}
+
+fn do_pair_devices(api: Api, json: bool) -> Result<(), String> {
+    let v = api.get_json("/api/pair/devices").map_err(api_error)?;
+    let list = v.as_array().cloned().unwrap_or_default();
+    if json {
+        println!("{}", serde_json::Value::Array(list));
+        return Ok(());
+    }
+    if list.is_empty() {
+        println!("no paired devices");
+        return Ok(());
+    }
+    for d in list {
+        let state = if d["revoked"].as_bool() == Some(true) { "revoked".to_owned() } else { pair_time(d["exp"].as_u64().unwrap_or(0)) };
+        println!("{}  {:<4} {:<24} {}", d["dev"].as_str().unwrap_or("?"), d["acc"].as_str().unwrap_or("?"), d["name"].as_str().unwrap_or(""), state);
+    }
+    Ok(())
+}
+
+fn do_pair_revoke(api: Api, id: String) -> Result<(), String> {
+    api.req("DELETE", &format!("/api/pair/devices/{id}")).call().map_err(api_error)?;
+    println!("revoked {id}");
+    Ok(())
+}
+
 fn format_size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
     let mut value = bytes as f64;
@@ -983,7 +1093,57 @@ enum HistoryAction {
 }
 
 #[derive(Subcommand, Debug)]
+enum PairAction {
+    /// Open a pairing window and print the code to give to the new device
+    Open {
+        /// Access the new device gets: r, w or rw
+        #[arg(long, default_value = "rw", value_name = "r|w|rw")]
+        access: String,
+        /// Label for the device
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, help = "Print the server's JSON answer")]
+        json: bool,
+    },
+    /// List ECDH pairings waiting for your decision (compare the fingerprint with the device's screen)
+    Pending {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Approve a waiting pairing, by id or by the fingerprint shown on the device
+    Approve {
+        #[arg(value_name = "ID|FINGERPRINT")]
+        which: String,
+        /// Public key scanned from the device's QR code (base64url); must belong to this pairing
+        #[arg(long, value_name = "B64")]
+        client_pub: Option<String>,
+    },
+    /// Reject a waiting pairing, by id or by fingerprint
+    Reject {
+        #[arg(value_name = "ID|FINGERPRINT")]
+        which: String,
+    },
+    /// List paired devices
+    Devices {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Revoke a paired device (its tokens stop working immediately)
+    Revoke {
+        #[arg(value_name = "DEVICE")]
+        id: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum Commands {
+    /// Pair new devices (browsers using the widget): open a window, approve, list and revoke devices
+    Pair {
+        #[command(flatten)]
+        target: Target,
+        #[command(subcommand)]
+        action: PairAction,
+    },
     /// Show client and server versions and whether they are compatible (exit 2 if not)
     Version {
         #[command(flatten)]
@@ -1206,6 +1366,17 @@ async fn main() {
             let r = unwrap_or_exit(r);
             let socket = resolve_socket(socket);
             unwrap_or_exit(do_copy(r, socket, session, namespace, output, output_cmd, item, verbose));
+        }
+        Commands::Pair { target, action } => {
+            let api = resolve_api(&cfg, target);
+            unwrap_or_exit(match action {
+                PairAction::Open { access, name, json } => do_pair_open(api, access, name, json),
+                PairAction::Pending { json } => do_pair_pending(api, json),
+                PairAction::Approve { which, client_pub } => do_pair_decide(api, which, true, client_pub),
+                PairAction::Reject { which } => do_pair_decide(api, which, false, None),
+                PairAction::Devices { json } => do_pair_devices(api, json),
+                PairAction::Revoke { id } => do_pair_revoke(api, id),
+            });
         }
         Commands::Put { target, file, name, ttl } => {
             unwrap_or_exit(do_put(resolve_api(&cfg, target), file, name, ttl));
