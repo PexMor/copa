@@ -639,6 +639,25 @@ fn do_version(r: &Remote) -> Result<(), String> {
 
 // ── files and history ─────────────────────────────────────────────────────────
 
+/// Transport failure with its cause. `kind()` alone ("Connection Failed") hides TLS trust problems,
+/// which are the usual reason a presigned https URL (e.g. a LAN CA) fails from the CLI.
+fn transport_detail(t: &ureq::Transport) -> String {
+    // never `{t}`: its Display embeds the full presigned URL (signature included)
+    let mut detail = t.message().unwrap_or_default().to_owned();
+    if let Some(src) = std::error::Error::source(t) {
+        detail = format!("{detail}: {src}");
+    }
+    let lower = detail.to_lowercase();
+    let mut msg = if detail.is_empty() { t.kind().to_string() } else { format!("{} ({detail})", t.kind()) };
+    if lower.contains("certificate") || lower.contains("unknownissuer") || lower.contains("tls") {
+        msg.push_str(
+            "\n  hint: the object store's TLS certificate is not trusted. Install its CA system-wide \
+             (update-ca-certificates), or point SSL_CERT_FILE at a bundle that includes it.",
+        );
+    }
+    msg
+}
+
 /// A remote plus namespace: builds authenticated requests for the JSON API.
 struct Api {
     remote:    Remote,
@@ -882,7 +901,7 @@ fn do_put(api: Api, file: PathBuf, name: Option<String>, ttl: Option<u64>) -> Re
     match put.send(reader) {
         Ok(_) => {}
         Err(ureq::Error::Status(code, _)) => return Err(format!("upload failed: object store returned {code}")),
-        Err(ureq::Error::Transport(t)) => return Err(format!("upload failed: {}", t.kind())),
+        Err(ureq::Error::Transport(t)) => return Err(format!("upload failed: {}", transport_detail(&t))),
     }
 
     match api.req("POST", &format!("/api/files/{id}/complete")).call() {
@@ -944,7 +963,7 @@ fn do_get(api: Api, id: Option<String>, output: Option<String>, force: bool) -> 
     let fetch = || match ureq::get(url).call() {
         Ok(resp) => Ok(resp.into_reader()),
         Err(ureq::Error::Status(code, _)) => Err(format!("download failed: object store returned {code}")),
-        Err(ureq::Error::Transport(t)) => Err(format!("download failed: {}", t.kind())),
+        Err(ureq::Error::Transport(t)) => Err(format!("download failed: {}", transport_detail(&t))),
     };
 
     if output.as_deref() == Some("-") {

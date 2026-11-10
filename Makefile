@@ -27,7 +27,7 @@ help:
 	@echo "  \033[32mbuild-all\033[0m           Build frontend + Rust debug"
 	@echo "  \033[32mrelease-all\033[0m         Build frontend + Rust release"
 	@echo "  \033[32mdeploy-docs\033[0m         Build frontend and publish to docs/app/"
-	@echo "  \033[32ms3-up\033[0m               Start + bootstrap the reference Garage S3 backend (docker)"
+	@echo "  \033[32ms3-up\033[0m               Start + bootstrap the reference Garage S3 backend (docker; CORS_EXTRA=\"https://a https://b\" adds CORS origins, state in ~/.config/copa/s3-garage)"
 	@echo "  \033[32ms3-down\033[0m             Stop the reference Garage backend (data is kept)"
 	@echo "  \033[32mtest-s3\033[0m             End-to-end file sharing test against Garage"
 	@echo "  \033[32mverify-s3\033[0m           Garage + copasrv on the LAN to try by hand (HOST=name CERT=… KEY=… for HTTPS)"
@@ -63,11 +63,12 @@ deploy-docs: build-web
 	rm -rf docs/app/*
 	cp -r web/dist/. docs/app/
 
+# make s3-up [CORS_EXTRA="https://copa.example.com http://host:8080"]  (or env COPA_CORS_EXTRA; space/comma separated)
 s3-up:
-	./deploy/garage/init.sh
+	COPA_CORS_EXTRA="$(or $(CORS_EXTRA),$(COPA_CORS_EXTRA))" ./deploy/garage/init.sh
 
 s3-down:
-	cd ./deploy/garage && docker compose --profile caddy down
+	cd ./deploy/garage && . ./state.sh && docker compose --profile caddy --profile lan down
 
 test-s3:
 	./scripts/test-s3.sh
@@ -92,8 +93,18 @@ install: release
 
 # Frontend only: rebuild web/ and replace $(PREFIX)/share/copa/dist (what COPA_STATIC_DIR points at).
 # No binary rebuild or service restart needed; copasrv reads the files from disk.
+# The old dist is removed first (after confirmation) so no stale assets survive.
+# Non-interactive: make install-web YES=1
 install-web: build-web
-	rm -rf $(PREFIX)/share/copa/dist
+	@d="$(PREFIX)/share/copa/dist"; \
+	if [ -e "$$d" ]; then \
+	  if [ -n "$(YES)" ]; then :; \
+	  elif [ -t 0 ]; then \
+	    printf "Remove old frontend at %s and install the new build? [y/N] " "$$d"; read a; \
+	    case "$$a" in y|Y|yes|YES) ;; *) echo "aborted; $$d left untouched"; exit 1;; esac; \
+	  else echo "$$d exists; not a tty, re-run with YES=1 to replace it"; exit 1; fi; \
+	  rm -rf "$$d"; echo "removed $$d"; \
+	fi
 	install -d $(PREFIX)/share/copa/dist
 	cp -r web/dist/. $(PREFIX)/share/copa/dist/
 	@echo "frontend installed to $(PREFIX)/share/copa/dist"

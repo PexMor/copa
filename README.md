@@ -179,7 +179,7 @@ COPA_NAMESPACE=shared      # copacli default namespace
 COPA_SOCKET=/tmp/tmux-1000/default
 COPA_SESSION=main
 COPA_CONFIG=/path/to/config.toml   # copasrv and copacli
-COPA_STATIC_DIR=web/dist           # copasrv: serve this web app instead of the embedded UI
+COPA_STATIC_DIR=web/dist           # copasrv: web app directory (default: <exe>/../share/copa/dist, then ~/.local/share/copa/dist)
 COPA_SERVER=http://host:8080       # copacli: server URL (overrides the remote)
 COPA_S3_SECRET_ACCESS_KEY=...   # copasrv: overrides [server.storage] secret_access_key
 
@@ -204,7 +204,8 @@ copasrv --port 9000 --bind 0.0.0.0
 # Use another config file (env: COPA_CONFIG)
 copasrv --config /etc/copa/config.toml
 
-# Serve the Vite web app instead of the embedded fallback UI (env: COPA_STATIC_DIR)
+# Serve the web app from an explicit directory (env: COPA_STATIC_DIR). Without it copasrv looks in
+# <exe dir>/../share/copa/dist (make install-web), then ~/.local/share/copa/dist, and refuses to start if none has an index.html.
 copasrv --static-dir web/dist
 
 # Legacy: start with a single token (auto-creates "default" namespace)
@@ -537,7 +538,7 @@ Open `http://host:8080/` in a browser.
 - **History** — recent items with size and time until expiry; click a text item to load it, download files, delete items. Updates live while **Live** is on
 - **Files** — drop files on the clipboard panel, paste them (e.g. a screenshot), or use **Upload file**; shown only when the server has file sharing enabled
 
-History and files need the Vite web app (`--static-dir web/dist` or the hosted copy); the fallback UI embedded in `copasrv` is text-only.
+`copasrv` serves the built web app from disk (`make install-web`, or `--static-dir web/dist`); there is no embedded fallback UI.
 - **Pull / Push** — one-shot fetch or store
 - **Live** checkbox — opens a WebSocket subscription; textarea updates instantly on every server-side change
 - **Direct sync** — copy/paste via browser Clipboard API

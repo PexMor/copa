@@ -1,0 +1,21 @@
+# HTTPS front for the Garage S3 API on 0.0.0.0:${COPA_LAN_PORT} using an existing
+# (private-CA) certificate — no ACME. Started by init.sh when the cert files exist
+# (compose profile "lan"). Clients must trust the CA (e.g. ~/.config/srv_lan_ca/ca.pem).
+# Presigned URLs are signed over Host + path + query: use https://<name>:3901 as
+# COPA_S3_PUBLIC_URL, and Caddy passes everything through untouched.
+{
+	admin off
+	auto_https off
+}
+
+:{$COPA_LAN_PORT:3901} {
+	bind 0.0.0.0
+	tls /certs/{$COPA_LAN_CHAIN:bundle.pem} /certs/key.pem
+	# Keep in step with the largest max_file_size in copa's config (default 50 MiB).
+	request_body {
+		max_size 64MB
+	}
+	reverse_proxy 127.0.0.1:{$COPA_S3_PORT:3900} {
+		flush_interval -1
+	}
+}

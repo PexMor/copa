@@ -88,15 +88,15 @@ pub async fn serve(
     static_dir: Option<PathBuf>,
 ) -> Result<(), String> {
     let api = build_router(state.clone())?;
-    let app = if let Some(dir) = static_dir {
-        if !dir.is_dir() {
-            return Err(format!("--static-dir '{}' is not a directory", dir.display()));
+    // `None` serves the API only (used by tests); copasrv always passes the resolved web app dir.
+    let app = match static_dir {
+        Some(dir) => {
+            if !dir.is_dir() {
+                return Err(format!("static dir '{}' is not a directory", dir.display()));
+            }
+            api.fallback_service(ServeDir::new(&dir))
         }
-        api.fallback_service(ServeDir::new(&dir))
-    } else {
-        api.route("/",              get(static_assets::handler_ui))
-           .route("/icon.svg",      get(static_assets::handler_icon))
-           .route("/manifest.json", get(static_assets::handler_manifest))
+        None => api,
     };
     reaper::spawn(state);
     // connect info: the pairing endpoints rate-limit per source address

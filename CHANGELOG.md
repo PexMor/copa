@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `copasrv` no longer embeds a legacy UI (`web/ui.html` removed). It serves the web app from `--static-dir` / `COPA_STATIC_DIR`, defaulting to `<exe dir>/../share/copa/dist`, then `~/.local/share/copa/dist`, and exits with an error listing the searched paths if none has an `index.html`.
+- `copasrv` prints the web app directory at startup.
+- `make install-web` asks before removing the old installed frontend (`YES=1` to skip).
+
 ## [0.4.0] - 2026-11-09
 
 ### Added

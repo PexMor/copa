@@ -37,8 +37,10 @@ fn the_pairing_log_contains_events_but_no_secrets() {
     .unwrap();
     let log_path = dir.path().join("server.log");
     let port = free_port();
+    let web = tempfile::tempdir().unwrap();
+    std::fs::write(web.path().join("index.html"), "<!doctype html>").unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_copasrv"))
-        .args(["--config", cfg.to_str().unwrap(), "--port", &port.to_string(), "--bind", "127.0.0.1"])
+        .args(["--config", cfg.to_str().unwrap(), "--port", &port.to_string(), "--bind", "127.0.0.1", "--static-dir", web.path().to_str().unwrap()])
         .stderr(std::fs::File::create(&log_path).unwrap())
         .stdout(Stdio::null())
         .spawn()

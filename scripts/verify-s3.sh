@@ -54,7 +54,7 @@ if [ -n "$CERT" ] || [ -n "$KEY" ]; then
 fi
 
 # Garage's loopback port (from deploy/garage/.env if it exists)
-S3_LOCAL_PORT="$(sed -n 's/^COPA_S3_PORT=//p' deploy/garage/.env 2>/dev/null | head -1)"; S3_LOCAL_PORT="${S3_LOCAL_PORT:-3900}"
+S3_LOCAL_PORT="$(sed -n 's/^COPA_S3_PORT=//p' "$(. deploy/garage/state.sh; echo "$COPA_S3_DIR")/.env" 2>/dev/null | head -1)"; S3_LOCAL_PORT="${S3_LOCAL_PORT:-3900}"
 if [ -n "$TLS" ]; then
   SCHEME=https
   PORT="${PORT:-8443}"; S3_PUBLIC_PORT="${S3_PUBLIC_PORT:-3943}"
@@ -112,7 +112,7 @@ export COPA_CORS_ORIGINS="$URL"
   echo "[server]"
   echo "port = $SRV_PORT"
   echo "bind = \"$SRV_BIND\""
-  cat deploy/garage/storage.toml
+  cat "$(. deploy/garage/state.sh; echo "$COPA_S3_DIR")/storage.toml"
   # own prefix: this run's startup sweep must not touch a real instance's files
   echo 'key_prefix = "copa-verify/"'
   echo "[server.namespaces.default]"

@@ -12,21 +12,33 @@ deployment. How copa uses it is described in [docs/FILES.md](../../docs/FILES.md
 
 `init.sh` is safe to re-run. It:
 
-1. creates `.env` from `.env.example` with a freshly generated RPC secret (first run only);
+1. creates `~/.config/copa/s3-garage/.env` (state dir; override with `COPA_S3_DIR`) from `.env.example` with a freshly generated RPC secret (first run only);
 2. starts Garage and assigns the single-node layout;
 3. creates the bucket and an access key that may read/write **that bucket only**;
 4. sets the bucket CORS policy for the origins in `COPA_CORS_ORIGINS`
+   plus any extra origins from `COPA_CORS_EXTRA` (or `make s3-up CORS_EXTRA="https://a.example https://b.example"`;
+   space or comma separated, added to the base list),
    and a lifecycle rule that expires objects after `COPA_LIFECYCLE_DAYS`;
 5. prints the `[server.storage]` block for `~/.config/copa/config.toml`
-   and saves it to `storage.toml`.
+   and saves it to `~/.config/copa/s3-garage/storage.toml`.
+
+6. if a certificate is found, starts a Caddy HTTPS front for the S3 API on `0.0.0.0:3901`
+   (`proxy/Caddyfile.lan`, compose profile `lan`). It looks in
+   `~/.config/srv_lan_ca/hosts/srv.lan/` for `key.pem` plus the first of `bundle.pem`,
+   `bundle-2.pem`, `cert.pem` (override: `COPA_LAN_HOST`, `COPA_LAN_CA_DIR`,
+   `COPA_LAN_CERT_DIR`, `COPA_LAN_PORT`). Clients must trust the CA (`ca.pem`); set
+   `COPA_S3_PUBLIC_URL=https://srv.lan:3901` so presigned URLs use it. Without the files this step is skipped.
 
 It needs `docker`, `openssl`, and either a local `aws` CLI or the ability to
 pull the `amazon/aws-cli` image (used once, for the CORS and lifecycle calls).
 
-`.env` and `storage.toml` hold secrets; both are git-ignored and created with
-mode 600.
+`.env` and `storage.toml` hold secrets and live outside the repo, in the state dir
+(`~/.config/copa/s3-garage/`, mode 600), together with Garage's `data/` and `meta/`.
+Files an older `init.sh` kept in this directory are moved there on the next run.
+Data from the old Docker named volumes (`garage_garage-data`, `garage_garage-meta`) is
+not migrated automatically.
 
-Stop with `docker compose down` (`make s3-down`); add `-v` to also delete the data.
+Stop with `make s3-down`; to also delete the data, remove `~/.config/copa/s3-garage/{data,meta}`.
 
 ## What is exposed
 
@@ -45,7 +57,7 @@ docker compose exec garage /garage status
 docker compose exec garage /garage bucket info copa
 ```
 
-## Settings (`.env`)
+## Settings (`~/.config/copa/s3-garage/.env`)
 
 | Variable | Default | Meaning |
 |----------|---------|---------|

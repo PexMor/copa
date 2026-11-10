@@ -148,8 +148,7 @@ A client can read the effective values from `GET /api/capabilities`.
   `max_file_size` below what your reverse proxy accepts.
 - **Files are not end-to-end encrypted.** Whoever operates the object store, or
   holds a read token for the namespace, can read them.
-- `copa-tray`, the MQTT transport and the built-in fallback UI
-  (`copasrv` without `--static-dir`) handle text only.
+- `copa-tray` and the MQTT transport handle text only.
 
 ## Security checklist
 

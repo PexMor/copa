@@ -1,8 +1,8 @@
 # Reference S3-compatible backend for copa file sharing.
 #
 #   ./init.sh                 start + bootstrap (bucket, key, CORS), prints [server.storage]
-#   docker compose down       stop (data is kept in named volumes)
-#   docker compose down -v    stop and wipe all data
+#   make s3-down              stop (data is kept in $COPA_S3_DIR, default ~/.config/copa/s3-garage)
+#   rm -rf $COPA_S3_DIR/{data,meta}   wipe all data (after stopping)
 #
 # Only the S3 API is published, and only on loopback. Put a reverse proxy in
 # front of it to reach it from the internet (see proxy/ and README.md).
@@ -19,8 +19,8 @@ services:
       - "${COPA_S3_BIND:-127.0.0.1}:${COPA_S3_PORT:-3900}:3900"
     volumes:
       - ./garage.toml:/etc/garage.toml:ro
-      - garage-meta:/var/lib/garage/meta
-      - garage-data:/var/lib/garage/data
+      - ${COPA_S3_DIR:?source state.sh (init.sh does)}/meta:/var/lib/garage/meta
+      - ${COPA_S3_DIR}/data:/var/lib/garage/data
     healthcheck:
       test: ["CMD", "/garage", "status"]
       interval: 5s
@@ -47,8 +47,23 @@ services:
       - caddy-data:/data
       - caddy-config:/config
 
+  # TLS front for the S3 API on 0.0.0.0:3901 with an existing certificate (private CA).
+  # init.sh starts it automatically when the cert files are found (see COPA_LAN_* in README).
+  caddy-lan:
+    image: caddy:2
+    profiles: ["lan"]
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      COPA_LAN_PORT: ${COPA_LAN_PORT:-3901}
+      COPA_LAN_CHAIN: ${COPA_LAN_CHAIN:-bundle.pem}
+      COPA_S3_PORT: ${COPA_S3_PORT:-3900}
+    volumes:
+      - ./proxy/Caddyfile.lan:/etc/caddy/Caddyfile:ro
+      - ${COPA_LAN_CERT_DIR:-/nonexistent}:/certs:ro
+      - caddy-lan-data:/data
+
 volumes:
-  garage-meta:
-  garage-data:
+  caddy-lan-data:
   caddy-data:
   caddy-config:

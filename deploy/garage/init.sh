@@ -1,28 +1,38 @@
 #!/usr/bin/env bash
 # Start the reference Garage backend and bootstrap it for copa. Safe to re-run.
 #
+#   - state dir: $COPA_S3_DIR (default ~/.config/copa/s3-garage): .env, storage.toml, data/, meta/
 #   - generates .env with a fresh RPC secret (first run only)
 #   - assigns the single-node layout
 #   - creates the bucket and an access key that can read/write that bucket only
 #   - sets bucket CORS (browser uploads) and a lifecycle rule (expiry backstop)
 #   - prints the [server.storage] block for ~/.config/copa/config.toml
-#     and writes it to ./storage.toml (untracked)
+#     and writes it to $COPA_S3_DIR/storage.toml
 set -euo pipefail
 cd "$(dirname "$0")"
 umask 077
+. ./state.sh
+mkdir -p "$COPA_S3_DIR/data" "$COPA_S3_DIR/meta"
 
-if [ ! -f .env ]; then
-  sed "s/^GARAGE_RPC_SECRET=.*/GARAGE_RPC_SECRET=$(openssl rand -hex 32)/" .env.example > .env
-  echo "→ generated .env with a new RPC secret"
+# One-time migration of files an older init.sh kept next to the script.
+for f in .env storage.toml; do
+  if [ -f "$f" ] && [ ! -f "$COPA_S3_DIR/$f" ]; then mv "$f" "$COPA_S3_DIR/$f"; echo "→ moved $f to $COPA_S3_DIR"; fi
+done
+if [ ! -f "$COPA_S3_DIR/.env" ]; then
+  sed "s/^GARAGE_RPC_SECRET=.*/GARAGE_RPC_SECRET=$(openssl rand -hex 32)/" .env.example > "$COPA_S3_DIR/.env"
+  echo "→ generated $COPA_S3_DIR/.env with a new RPC secret"
 fi
 # Values already set in the environment win over .env (used by scripts/verify-s3.sh).
-overrides=$(for v in COPA_S3_BIND COPA_S3_PORT COPA_S3_PUBLIC_URL COPA_CORS_ORIGINS; do
+overrides=$(for v in COPA_S3_BIND COPA_S3_PORT COPA_S3_PUBLIC_URL COPA_CORS_ORIGINS COPA_CORS_EXTRA; do
   [ -n "${!v+x}" ] && printf '%s=%q\n' "$v" "${!v}"; done || true)
-set -a; . ./.env; eval "$overrides"; set +a
+set -a; . "$COPA_S3_DIR/.env"; eval "$overrides"; set +a
 
 : "${COPA_BUCKET:=copa}" "${COPA_KEY_NAME:=copa}" "${COPA_S3_PORT:=3900}" "${GARAGE_CAPACITY:=10G}"
 : "${COPA_S3_PUBLIC_URL:=http://127.0.0.1:${COPA_S3_PORT}}" "${COPA_LIFECYCLE_DAYS:=8}"
 : "${COPA_CORS_ORIGINS:=http://127.0.0.1:8080 http://localhost:8080}"
+# Extra allowed origins, added to COPA_CORS_ORIGINS (space or comma separated).
+COPA_CORS_ORIGINS="$COPA_CORS_ORIGINS ${COPA_CORS_EXTRA:-}"
+COPA_CORS_ORIGINS=$(printf '%s' "$COPA_CORS_ORIGINS" | tr ',' ' ' | xargs -n1 | awk '!s[$0]++' | paste -sd' ')
 LOCAL_S3="http://127.0.0.1:${COPA_S3_PORT}"
 
 garage() { docker compose exec -T -e RUST_LOG=warn garage /garage "$@"; }
@@ -107,6 +117,23 @@ fi
 garage key delete --yes "$setup_key" >/dev/null
 trap - EXIT
 
+# ── optional HTTPS front on 0.0.0.0:$COPA_LAN_PORT (existing private-CA certificate) ──
+: "${COPA_LAN_PORT:=3901}" "${COPA_LAN_HOST:=srv.lan}"
+: "${COPA_LAN_CERT_DIR:=${COPA_LAN_CA_DIR:-$HOME/.config/srv_lan_ca}/hosts/$COPA_LAN_HOST}"
+lan_chain=""
+for f in bundle.pem bundle-2.pem cert.pem; do  # leaf + intermediate preferred; avoid bundles with the root
+  [ -f "$COPA_LAN_CERT_DIR/$f" ] && { lan_chain=$f; break; }
+done
+if [ -n "$lan_chain" ] && [ -f "$COPA_LAN_CERT_DIR/key.pem" ]; then
+  export COPA_LAN_PORT COPA_LAN_CERT_DIR COPA_LAN_CHAIN="$lan_chain"
+  docker compose --profile lan up -d caddy-lan >/dev/null
+  echo "→ https front on 0.0.0.0:$COPA_LAN_PORT (cert $COPA_LAN_CERT_DIR/$lan_chain)"
+  lan_url="https://$COPA_LAN_HOST:$COPA_LAN_PORT"
+  [ "$COPA_S3_PUBLIC_URL" = "$lan_url" ] || echo "  hint: set COPA_S3_PUBLIC_URL=$lan_url in $COPA_S3_DIR/.env so browsers use it (clients must trust the CA)"
+else
+  echo "→ no TLS cert in $COPA_LAN_CERT_DIR (need key.pem + bundle.pem|bundle-2.pem|cert.pem): https front skipped"
+fi
+
 # ── result ────────────────────────────────────────────────────────────────────
 {
   echo "[server.storage]"
@@ -116,9 +143,9 @@ trap - EXIT
   echo "bucket            = \"$COPA_BUCKET\""
   echo "access_key_id     = \"$key_id\""
   echo "secret_access_key = \"$key_secret\""
-} > storage.toml
+} > "$COPA_S3_DIR/storage.toml"
 
 echo
-echo "Garage is ready. Add this to ~/.config/copa/config.toml (also saved to $(pwd)/storage.toml):"
+echo "Garage is ready. Add this to ~/.config/copa/config.toml (also saved to $COPA_S3_DIR/storage.toml):"
 echo
-cat storage.toml
+cat "$COPA_S3_DIR/storage.toml"

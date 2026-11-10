@@ -25,8 +25,8 @@ pass "garage is up and bootstrapped"
 cargo build --quiet --bin copasrv --bin copacli
 SRV="$ROOT/target/debug/copasrv"; CLI="$ROOT/target/debug/copacli"
 
-garage() { (cd deploy/garage && docker compose exec -T -e RUST_LOG=warn garage /garage "$@"); }
-bucket=$(sed -n 's/^bucket *= *"\(.*\)"/\1/p' deploy/garage/storage.toml)
+garage() { (cd deploy/garage && . ./state.sh && docker compose exec -T -e RUST_LOG=warn garage /garage "$@"); }
+bucket=$(sed -n 's/^bucket *= *"\(.*\)"/\1/p' "$(. deploy/garage/state.sh; echo "$COPA_S3_DIR")/storage.toml")
 objects() { garage bucket info "$bucket" | sed -n 's/^Objects: *//p' | tr -d '[:space:]'; }
 wait_objects() { # <expected> <timeout-secs>
   for _ in $(seq 1 "$2"); do [ "$(objects)" = "$1" ] && return 0; sleep 1; done; return 1
@@ -35,7 +35,7 @@ wait_objects() { # <expected> <timeout-secs>
 TOKEN=$("$SRV" --generate-token)
 {
   echo "[server]"; echo "port = $PORT"
-  cat deploy/garage/storage.toml
+  cat "$(. deploy/garage/state.sh; echo "$COPA_S3_DIR")/storage.toml"
   echo 'key_prefix = "copa-e2e/"'
   echo "[server.namespaces.default]"
   echo "rw_token = \"$TOKEN\""

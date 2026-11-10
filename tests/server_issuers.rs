@@ -13,15 +13,23 @@ use support::*;
 
 const COPASRV: &str = env!("CARGO_BIN_EXE_copasrv");
 
+/// A minimal web app directory: copasrv refuses to start without one.
+fn fake_web_app() -> tempfile::TempDir {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("index.html"), "<!doctype html>").unwrap();
+    d
+}
+
 /// Run copasrv with a config file; returns (exit success, stderr). Port 0 is not
 /// accepted by the flag parser path used here, so a startup failure is the only
 /// outcome these tests look at.
 fn run_expecting_failure(config: &str) -> (bool, String) {
     let dir = tempfile::tempdir().unwrap();
+    let web = fake_web_app();
     let path = dir.path().join("config.toml");
     std::fs::write(&path, config).unwrap();
     let mut child = Command::new(COPASRV)
-        .args(["--config", path.to_str().unwrap(), "--port", "0", "--bind", "127.0.0.1"])
+        .args(["--config", path.to_str().unwrap(), "--port", "0", "--bind", "127.0.0.1", "--static-dir", web.path().to_str().unwrap()])
         .stderr(Stdio::piped())
         .stdout(Stdio::null())
         .spawn()
@@ -470,6 +478,7 @@ fn the_server_log_explains_rejections_without_ever_containing_a_credential() {
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
     let jwks = JwksServer::start(&rt, vec![ec1_jwk()]);
     let dir = tempfile::tempdir().unwrap();
+    let web = fake_web_app();
     let cfg_path = dir.path().join("config.toml");
     let cfg = CONFIG
         .replace("{JWKS}", &jwks.url)
@@ -478,7 +487,7 @@ fn the_server_log_explains_rejections_without_ever_containing_a_credential() {
     let log_path = dir.path().join("server.log");
     let port = free_port();
     let mut child = Command::new(COPASRV)
-        .args(["--config", cfg_path.to_str().unwrap(), "--port", &port.to_string(), "--bind", "127.0.0.1"])
+        .args(["--config", cfg_path.to_str().unwrap(), "--port", &port.to_string(), "--bind", "127.0.0.1", "--static-dir", web.path().to_str().unwrap()])
         .stderr(std::fs::File::create(&log_path).unwrap())
         .stdout(Stdio::null())
         .spawn()
