@@ -22,6 +22,7 @@ The separation keeps the server's attack surface small — it stores bytes and p
 - **MQTT clipboard sharing** — `copacli mqtt-pub/mqtt-get/mqtt-sub` and copa-tray Upload/Download menu items; AES-256-GCM encrypted, interoperable with the web app; works with any MQTT broker over `mqtt://`, `mqtts://`, `ws://`, `wss://`
 - **Clipboard history** — each namespace keeps its recent items (default 20); list them, fetch an older one, delete them. Every item expires (default 24 h)
 - **File sharing** (optional) — `copacli put` / `get`, drag-and-drop in the web app; files go straight to S3-compatible storage via presigned URLs and are removed when they expire. See [docs/FILES.md](docs/FILES.md)
+- **Embeddable widget** — a Preact component / `<copa-share>` element that adds text and file sharing to *any* web application, configured by one JSON file. Sign in with a static token, a popup against a central **token service** (OAuth2/OIDC), or **device pairing** (SPAKE2 short code, or an ECDH key exchange an operator approves). See [docs/WIDGET.md](docs/WIDGET.md)
 - **Web UI** — installable PWA: namespace selector, Live WebSocket toggle, auto-pull, shareable token links, history list, file drop zone, MQTT servers, QR sharing of servers and keys, GPS location sharing
 
 ## Installation
@@ -518,6 +519,16 @@ ws://host:8080/ws?token=TOKEN&namespace=default
 websocat "ws://localhost:8080/ws?token=TOKEN&namespace=default"
 ```
 
+### Pairing and token-issuer endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/events/ticket` | single-use, 30 s ticket for `/ws/events?ticket=…` (read access) |
+| `POST /api/pair/windows`, `GET /api/pair/pending`, `POST /api/pair/pending/{id}/approve\|reject`, `GET /api/pair/devices`, `DELETE /api/pair/devices/{id}` | operator side of pairing (write access); `copacli pair …` |
+| `POST /api/pair/spake2/start\|confirm`, `POST /api/pair/ecdh/start\|result`, `POST /api/pair/renew` | device side; `404` unless `[server.pairing]` is enabled |
+
+JWTs from a configured issuer are accepted wherever a token is (see [docs/WIDGET.md](docs/WIDGET.md)).
+
 ## Web UI
 
 Open `http://host:8080/` in a browser.
@@ -536,6 +547,28 @@ History and files need the Vite web app (`--static-dir web/dist` or the hosted c
 - **QR codes** — show or scan a QR code to hand a server or AES key to another device
 - **GPS sharing** — send your position as a `geo:` URI or a Google Maps, Mapy.cz, Apple Maps or OpenStreetMap link
 - **Shareable link** — `#token=…&url=…` fragment that never reaches server logs
+
+## Embeddable widget
+
+`web-widget/` builds a small component that lets any web page share text and files through a copa server —
+`<copa-share config-url="/copa-widget.json">` or `Copa.mount(el, { configUrl })` — with content-type aware
+previews, drag/drop/paste uploads straight to S3, live updates and a typed host API.
+
+```bash
+make build-widget            # web-widget/dist (ES module + self-contained script), size budgets enforced
+make dist                    # also ships it in bin/frontend/widget/ with demo pages and the config schema
+```
+
+How users authenticate is configuration, per endpoint:
+
+| `auth.method` | What happens | Server side |
+|---|---|---|
+| `static-token` | a fixed bearer token (inline, or supplied by the host app) | the namespace's tokens, as before |
+| `oauth2` | pop-up sign-in at a central token service; short-lived JWT access tokens, rotating refresh | `[server.auth.issuers.<name>]` — copasrv only *verifies* the tokens |
+| `pairing` | a SPAKE2 short code, or an ECDH fingerprint the operator approves with `copacli pair approve` | `[server.pairing]` — time-limited, revocable device tokens |
+
+Everything is documented in [docs/WIDGET.md](docs/WIDGET.md). For testing there is an independent token
+service in [`token-issuer/`](token-issuer/README.md) (`make token-issuer`).
 
 ## tmux Integration
 
@@ -596,6 +629,7 @@ bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel \
 - Everything expires: text and files are removed after `item_ttl_secs`, files from the object store too
 - File sharing uses short-lived presigned URLs; S3 credentials never leave the server. Read the [security checklist](docs/FILES.md#security-checklist) before exposing it to the internet
 - `allowed_origins` restricts which web origins may call the API
+- Trusted-issuer JWTs are verified against the issuer's published keys with an algorithm allow-list (no `HS*`, no `none`), audience and expiry checks; copasrv never holds OAuth secrets or refresh tokens. Pairing never sends its code over the network, is rate-limited, and logs no secrets — see [docs/WIDGET.md](docs/WIDGET.md)
 - Rotate tokens with `copasrv --generate-token`
 
 ## Development
@@ -621,6 +655,11 @@ cargo test
 
 # End-to-end file sharing test against a local Garage (needs Docker)
 make test-s3
+
+# Widget (needs `cargo build` and uv for the cross-implementation tests) and the test token service
+make test-widget
+make test-token-issuer
+cd web-widget && yarn test:browser && yarn test:e2e && yarn test:e2e:pairing   # real Chromium
 ```
 
 ### Try file sharing by hand on your local network

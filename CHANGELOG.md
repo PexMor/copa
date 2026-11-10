@@ -7,7 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-09
+
 ### Added
+- **Embeddable widget** (`web-widget/`): a Preact component and `<copa-share>` custom element (Shadow DOM,
+  themable with CSS variables) that adds text and file sharing to any web application — configured by one
+  JSON file (`copa-widget.schema.json`), with content-type aware previews, drag/drop/paste upload to S3,
+  live updates, and a typed host API (`share`, `paste`, events). Built by `make build-widget`; shipped in
+  `bin/frontend/widget/` by `make dist`. See `docs/WIDGET.md`.
+- **Token-service sign-in** for the widget (`auth.method = "oauth2"`): pop-up (or full-page redirect) login at
+  a central OAuth2/OIDC token service, verifier-bound hand-off, silent renewal with rotating refresh tokens,
+  COOP-safe polling fallback, optional persistence.
+- **Trusted issuers** in copasrv (`[server.auth.issuers.<name>]`): JWT access tokens are verified against the
+  issuer's JWKS (ES256/RS256/…; never `HS*` or `none`), with issuer/audience/expiry checks, rate-limited key
+  refresh, stale-on-failure, and claim → namespace/access mapping (`403` for a valid token without access).
+- **Device pairing** (`[server.pairing]`): operator-opened windows, SPAKE2 short code or ECDH fingerprint
+  approval, time-limited revocable device tokens (optional sliding renewal), per-source rate limit;
+  `copacli pair open|pending|approve|reject|devices|revoke`.
+- `POST /api/events/ticket`: single-use event-stream tickets so no credential has to go into a WebSocket URL;
+  the stream ends when the credential that opened it expires.
+- `token-issuer/`: an independent token service for testing (fake users or upstream OIDC such as dex, JWKS,
+  key rotation, fault injection), `make token-issuer`.
+- `web-core/`: the HTTP/upload client shared by the web app and the widget.
 - Ansible: opt-in management of the `[server.storage]` block on a running instance
   (`-e copa_storage_enabled=true` / `--tags storage`, removal with
   `copa_storage_remove=true`). Only the marked block is touched, a timestamped
@@ -18,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `Cargo.lock` is now tracked and dependencies were updated
 - Web app: yarn 4.18.1 and all dependencies bumped to latest
+- The `/ws/events` stream subscribes before the upgrade completes, so an item pushed right after connecting
+  is no longer missed.
+- Clipboard 401 answers now carry a JSON content type; a valid credential without access to the namespace
+  gets `403`.
+- Web app: its API client and upload code moved to `web-core/` (no behaviour change).
 
 ## [0.3.0] - 2026-11-05
 
