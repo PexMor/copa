@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>copa widget demo — every sign-in method</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; }
+    pre { background: #8881; padding: .6rem; overflow: auto; font-size: 12px; max-height: 9rem; }
+  </style>
+</head>
+<body>
+  <h1>copa widget — every sign-in method</h1>
+  <p>One widget, four endpoints on the same server and namespace; pick one in the selector.
+     Parameters: <code>copa</code> (server URL), <code>ns</code>, <code>token</code> (static token),
+     <code>issuer</code> (token service). See <code>docs/WIDGET.md</code>.</p>
+  <div id="mount"></div>
+  <h3>Events</h3>
+  <pre id="log" aria-live="polite"></pre>
+
+  <script src="../dist/copa-widget.iife.js"></script>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const log = (line) => { document.getElementById('log').textContent += line + '\n'; };
+    const url = q.get('copa'), namespace = q.get('ns') || 'default';
+    const endpoints = [];
+    if (q.get('token')) endpoints.push({ id: 'static', url, namespace, auth: { method: 'static-token', token: q.get('token') } });
+    if (q.get('issuer')) endpoints.push({ id: 'sso', url, namespace, auth: { method: 'oauth2', tokenService: q.get('issuer') } });
+    endpoints.push({ id: 'code', url, namespace, auth: { method: 'pairing', protocol: 'spake2' } });
+    endpoints.push({ id: 'key', url, namespace, auth: { method: 'pairing', protocol: 'ecdh' } });
+    Copa.mount(document.getElementById('mount'), {
+      config: { version: 1, endpoints },
+      onAuthChange: (state, id) => log('auth ' + id + ': ' + state),
+      onItem: (item) => log('item: ' + item.kind + ' ' + (item.name || item.preview || '')),
+      onError: (e) => log('error: ' + (e && e.message ? e.message : e)),
+    });
+  </script>
+</body>
+</html>

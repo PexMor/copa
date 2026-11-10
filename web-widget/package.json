@@ -1,0 +1,43 @@
+{
+  "name": "copa-widget",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Embeddable Preact widget for sharing text and files through a copa server",
+  "main": "dist/copa-widget.es.js",
+  "module": "dist/copa-widget.es.js",
+  "types": "dist/types/index.d.ts",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && vite build -c vite.iife.config.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "test:browser": "node test-browser/run.mjs",
+    "test:demo": "node test-browser/demo.mjs",
+    "size": "node scripts/check-size.mjs",
+    "test:e2e": "node test-browser/e2e-oauth.mjs",
+    "test:e2e:pairing": "node test-browser/e2e-pairing.mjs",
+    "test:dist": "node test-browser/dist-smoke.mjs",
+    "test:e2e:all": "node test-browser/e2e-all.mjs"
+  },
+  "peerDependencies": {
+    "preact": ">=10"
+  },
+  "devDependencies": {
+    "@noble/curves": "1",
+    "@noble/hashes": "1",
+    "@preact/preset-vite": "^2.10.6",
+    "ajv": "8",
+    "jsdom": "^26.1.0",
+    "playwright": "1.64.1",
+    "preact": "^11.1.1",
+    "qrcode-generator": "1",
+    "typescript": "^7.0.2",
+    "vite": "8.3.6",
+    "vitest": "^3.2.4"
+  },
+  "packageManager": "yarn@4.18.1",
+  "resolutions": {
+    "rolldown": "1.2.16"
+  }
+}

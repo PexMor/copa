@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>copa widget demo — token service sign-in</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; }
+    pre { background: #8881; padding: .6rem; overflow: auto; font-size: 12px; max-height: 9rem; }
+  </style>
+</head>
+<body>
+  <h1>copa widget — sign in with a token service</h1>
+  <p>Open this page with query parameters, for example
+     <code>?copa=http://127.0.0.1:8080&amp;issuer=http://127.0.0.1:8090&amp;ns=shared</code>
+     (optional: <code>flow=redirect</code>, <code>persist=session</code>, <code>aud=…</code>).
+     Start the token service with <code>make token-issuer</code>; see <code>docs/WIDGET.md</code>.</p>
+  <div id="mount"></div>
+  <h3>Events</h3>
+  <pre id="log" aria-live="polite"></pre>
+
+  <script src="../dist/copa-widget.iife.js"></script>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const log = (line) => { document.getElementById('log').textContent += line + '\n'; };
+    const auth = { method: 'oauth2', tokenService: q.get('issuer'), flow: q.get('flow') || 'popup', persist: q.get('persist') || 'memory' };
+    if (q.get('aud')) auth.audience = q.get('aud');
+    Copa.mount(document.getElementById('mount'), {
+      config: { version: 1, endpoints: [{ id: 'demo', url: q.get('copa'), namespace: q.get('ns') || 'default', auth }] },
+      onAuthChange: (state) => log('auth: ' + state),
+      onItem: (item) => log('item: ' + item.kind + ' ' + (item.name || item.preview || '')),
+      onError: (e) => log('error: ' + (e && e.message ? e.message : e)),
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/PexMor/copa/schema/copa-widget.schema.json",
+  "title": "copa widget configuration",
+  "type": "object",
+  "required": [
+    "version",
+    "endpoints"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "description": "Configuration format version (major)."
+    },
+    "defaultEndpoint": {
+      "type": "string",
+      "minLength": 1,
+      "description": "id of the endpoint selected first."
+    },
+    "endpoints": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/endpoint"
+      }
+    },
+    "ui": {
+      "type": "object",
+      "properties": {
+        "theme": {
+          "enum": [
+            "light",
+            "auto",
+            "dark"
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "secureUrl": {
+      "type": "string",
+      "description": "https URL; http is accepted for loopback addresses only.",
+      "pattern": "^(https://[^\\s/]+|http://(localhost|[^\\s/:]*\\.localhost|127(\\.[0-9]{1,3}){3}|\\[::1\\])(:[0-9]+)?)([/?#]\\S*)?$"
+    },
+    "endpoint": {
+      "type": "object",
+      "required": [
+        "id",
+        "url",
+        "auth"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "$ref": "#/$defs/secureUrl",
+          "description": "Base URL of the copa server."
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "default": "default"
+        },
+        "auth": {
+          "$ref": "#/$defs/auth"
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "required": [
+        "method"
+      ],
+      "oneOf": [
+        {
+          "$ref": "#/$defs/staticToken"
+        },
+        {
+          "$ref": "#/$defs/oauth2"
+        },
+        {
+          "$ref": "#/$defs/pairing"
+        }
+      ]
+    },
+    "staticToken": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "const": "static-token"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 1,
+          "x-sensitive": true,
+          "description": "Inline token. Visible to anyone who can load the page; prefer tokenFrom, oauth2 or pairing."
+        },
+        "tokenFrom": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of a token provider registered by the host application."
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "token"
+          ]
+        },
+        {
+          "required": [
+            "tokenFrom"
+          ]
+        }
+      ]
+    },
+    "oauth2": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "const": "oauth2"
+        },
+        "tokenService": {
+          "$ref": "#/$defs/secureUrl",
+          "description": "Base URL of the token service (discovery document)."
+        },
+        "loginUrl": {
+          "$ref": "#/$defs/secureUrl"
+        },
+        "pollUrl": {
+          "$ref": "#/$defs/secureUrl"
+        },
+        "tokenUrl": {
+          "$ref": "#/$defs/secureUrl"
+        },
+        "refreshUrl": {
+          "$ref": "#/$defs/secureUrl"
+        },
+        "logoutUrl": {
+          "$ref": "#/$defs/secureUrl"
+        },
+        "audience": {
+          "type": "string",
+          "minLength": 1
+        },
+        "popup": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "number",
+              "minimum": 200,
+              "maximum": 4000
+            },
+            "height": {
+              "type": "number",
+              "minimum": 200,
+              "maximum": 4000
+            }
+          }
+        },
+        "persist": {
+          "enum": [
+            "memory",
+            "session",
+            "local"
+          ],
+          "default": "memory"
+        },
+        "flow": {
+          "enum": [
+            "popup",
+            "redirect"
+          ],
+          "default": "popup",
+          "description": "popup window (default) or full-page redirect for environments that block pop-ups."
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "tokenService"
+          ]
+        },
+        {
+          "required": [
+            "loginUrl",
+            "tokenUrl",
+            "refreshUrl",
+            "logoutUrl"
+          ]
+        }
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "clientId"
+            ]
+          },
+          {
+            "required": [
+              "client_id"
+            ]
+          },
+          {
+            "required": [
+              "clientSecret"
+            ]
+          },
+          {
+            "required": [
+              "client_secret"
+            ]
+          }
+        ]
+      }
+    },
+    "pairing": {
+      "type": "object",
+      "required": [
+        "protocol"
+      ],
+      "properties": {
+        "method": {
+          "const": "pairing"
+        },
+        "protocol": {
+          "enum": [
+            "spake2",
+            "ecdh"
+          ]
+        },
+        "ttlHint": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "persist": {
+          "enum": [
+            "memory",
+            "session",
+            "local"
+          ],
+          "default": "memory"
+        }
+      }
+    }
+  }
+}

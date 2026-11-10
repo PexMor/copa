@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>copa widget demo</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; }
+    label { display: block; margin: .5rem 0 .2rem; font-weight: 600; }
+    input { width: 100%; padding: .4rem; box-sizing: border-box; }
+    #mount { margin-top: 1.5rem; }
+    /* The widget is themed by custom properties set on its element or any ancestor: */
+    #mount { --copa-accent: #7c3aed; }
+  </style>
+</head>
+<body>
+  <h1>copa widget demo</h1>
+  <p>A host page loading the widget from a plain <code>&lt;script&gt;</code> tag. Build it
+     (<code>yarn build</code>), serve this project folder
+     (<code>python3 -m http.server 5180</code> in <code>web-widget/</code>) and open
+     <code>http://localhost:5180/demo/?url=http://127.0.0.1:8080&amp;token=…</code>.
+     See <code>docs/WIDGET.md</code>.</p>
+
+  <label for="url">copa server URL</label><input id="url" value="http://127.0.0.1:8080">
+  <label for="token">token</label><input id="token" type="password" autocomplete="off">
+  <label for="ns">namespace</label><input id="ns" value="default">
+  <p><button id="go">Connect</button></p>
+  <p id="log" aria-live="polite"></p>
+
+  <div id="mount"></div>
+
+  <script src="../dist/copa-widget.iife.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const q = new URLSearchParams(location.search);
+    for (const [param, id] of [['url', 'url'], ['token', 'token'], ['ns', 'ns']]) if (q.get(param)) $(id).value = q.get(param);
+
+    let mounted = null;
+    function connect() {
+      if (mounted) mounted.unmount();
+      // The same document you would keep in copa-widget.json (see docs/WIDGET.md):
+      const config = {
+        version: 1,
+        endpoints: [{
+          id: 'demo',
+          url: $('url').value.replace(/\/$/, ''),
+          namespace: $('ns').value || 'default',
+          auth: { method: 'static-token', token: $('token').value },
+        }],
+      };
+      mounted = Copa.mount($('mount'), {
+        config,
+        onItem: (item) => { $('log').textContent = 'item: ' + item.kind + ' ' + (item.name || item.preview || ''); },
+        onError: (e) => { $('log').textContent = 'error: ' + (e && e.message ? e.message : e); },
+      });
+    }
+    $('go').onclick = connect;
+    if (q.get('token')) connect();
+  </script>
+</body>
+</html>
