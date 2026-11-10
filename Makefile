@@ -1,6 +1,6 @@
 PREFIX ?= ~
 
-.PHONY: dist dist-x86_64 dist-arm64 dist-armhf all help build release clean install uninstall tray-windows tray-windows-setup build-web dev-web clean-web build-all release-all deploy-docs s3-up s3-down test-s3 verify-s3 token-issuer test-token-issuer build-widget test-widget
+.PHONY: dist dist-x86_64 dist-arm64 dist-armhf all help build release clean install uninstall tray-windows tray-windows-setup build-web install-web dev-web clean-web build-all release-all deploy-docs s3-up s3-down test-s3 verify-s3 token-issuer test-token-issuer build-widget test-widget
 
 all: help
 
@@ -22,6 +22,7 @@ help:
 	@echo "  \033[32mtray-windows\033[0m        Cross-compile Windows tray client (.exe)"
 	@echo "  \033[32mtray-windows-setup\033[0m  Install cross-compilation toolchain for Windows"
 	@echo "  \033[32mbuild-web\033[0m           Build frontend (requires yarn v4)"
+	@echo "  \033[32minstall-web\033[0m        Build frontend and install to $(PREFIX)/share/copa/dist"
 	@echo "  \033[32mdev-web\033[0m             Start frontend dev server"
 	@echo "  \033[32mbuild-all\033[0m           Build frontend + Rust debug"
 	@echo "  \033[32mrelease-all\033[0m         Build frontend + Rust release"
@@ -88,6 +89,14 @@ install: release
 	  cp -r web/dist $(PREFIX)/share/copa/; \
 	  echo "frontend installed to $(PREFIX)/share/copa/dist"; \
 	fi
+
+# Frontend only: rebuild web/ and replace $(PREFIX)/share/copa/dist (what COPA_STATIC_DIR points at).
+# No binary rebuild or service restart needed; copasrv reads the files from disk.
+install-web: build-web
+	rm -rf $(PREFIX)/share/copa/dist
+	install -d $(PREFIX)/share/copa/dist
+	cp -r web/dist/. $(PREFIX)/share/copa/dist/
+	@echo "frontend installed to $(PREFIX)/share/copa/dist"
 
 uninstall:
 	rm -f $(PREFIX)/bin/copasrv $(PREFIX)/bin/copacli
