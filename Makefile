@@ -46,10 +46,10 @@ clean:
 	cargo clean
 
 build-web:
-	cd web && yarn install && yarn build
+	cd ./web && yarn install && yarn build
 
 dev-web:
-	cd web && yarn install && yarn dev
+	cd ./web && yarn install && yarn dev
 
 clean-web:
 	rm -rf web/dist web/node_modules
@@ -66,7 +66,7 @@ s3-up:
 	./deploy/garage/init.sh
 
 s3-down:
-	cd deploy/garage && docker compose --profile caddy down
+	cd ./deploy/garage && docker compose --profile caddy down
 
 test-s3:
 	./scripts/test-s3.sh
@@ -115,13 +115,13 @@ dist-armhf:
 PORT ?= 8090
 ADMIN_TOKEN ?= dev-admin
 token-issuer:
-	cd token-issuer && uv run token-issuer --ephemeral --port $(PORT) --admin-token $(ADMIN_TOKEN) $(ARGS)
+	cd ./token-issuer && uv run token-issuer --ephemeral --port $(PORT) --admin-token $(ADMIN_TOKEN) $(ARGS)
 
 test-token-issuer:
-	cd token-issuer && uv run pytest -q
+	cd ./token-issuer && uv run pytest -q
 
 build-widget:
-	cd web-widget && yarn install && yarn build && yarn size
+	cd ./web-widget && yarn install && yarn build && yarn size
 
 test-widget:
-	cd web-widget && yarn test
+	cd ./web-widget && yarn test
