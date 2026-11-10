@@ -1,6 +1,6 @@
 PREFIX ?= ~
 
-.PHONY: dist dist-x86_64 dist-arm64 dist-armhf all help build release clean install uninstall tray-windows tray-windows-setup build-web dev-web clean-web build-all release-all deploy-docs s3-up s3-down test-s3 verify-s3
+.PHONY: dist dist-x86_64 dist-arm64 dist-armhf all help build release clean install uninstall tray-windows tray-windows-setup build-web dev-web clean-web build-all release-all deploy-docs s3-up s3-down test-s3 verify-s3 token-issuer test-token-issuer build-widget test-widget
 
 all: help
 
@@ -30,6 +30,10 @@ help:
 	@echo "  \033[32ms3-down\033[0m             Stop the reference Garage backend (data is kept)"
 	@echo "  \033[32mtest-s3\033[0m             End-to-end file sharing test against Garage"
 	@echo "  \033[32mverify-s3\033[0m           Garage + copasrv on the LAN to try by hand (HOST=name CERT=… KEY=… for HTTPS)"
+	@echo "  \033[32mbuild-widget\033[0m       Build the embeddable widget (web-widget/, requires yarn v4)"
+	@echo "  \033[32mtest-widget\033[0m        Run the widget's unit tests (needs cargo build + uv for the cross-implementation tests)"
+	@echo "  \033[32mtoken-issuer\033[0m        Run the independent test token service (PORT=8090 ADMIN_TOKEN=dev-admin ARGS=…)"
+	@echo "  \033[32mtest-token-issuer\033[0m   Run the token issuer's test suite"
 	@echo ""
 
 build:
@@ -105,3 +109,19 @@ dist-arm64:
 	scripts/build-all.sh arm64
 dist-armhf:
 	scripts/build-all.sh armhf
+
+# Independent token service for testing the widget and copasrv's trusted-issuer auth.
+# Example: make token-issuer ARGS="--fault short-ttl:10"
+PORT ?= 8090
+ADMIN_TOKEN ?= dev-admin
+token-issuer:
+	cd token-issuer && uv run token-issuer --ephemeral --port $(PORT) --admin-token $(ADMIN_TOKEN) $(ARGS)
+
+test-token-issuer:
+	cd token-issuer && uv run pytest -q
+
+build-widget:
+	cd web-widget && yarn install && yarn build && yarn size
+
+test-widget:
+	cd web-widget && yarn test

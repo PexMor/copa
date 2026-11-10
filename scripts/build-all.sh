@@ -3,7 +3,7 @@
 #
 #   scripts/build-all.sh [--skip-web] [x86_64|arm64|armhf ...]   (default: all)
 #
-# Output: bin/<arch>/{copasrv,copacli}  and  bin/frontend/
+# Output: bin/<arch>/{copasrv,copacli}  and  bin/frontend/  (the web app; the widget is in bin/frontend/widget/)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -56,6 +56,16 @@ if [ "$SKIP_WEB" = 0 ]; then
   [ -f web/dist/index.html ] || { echo "error: web/dist/index.html not produced" >&2; exit 1; }
   rm -rf bin/frontend && mkdir -p bin
   cp -r web/dist bin/frontend
+
+  # the embeddable widget (web-widget/): served by copasrv at /widget/ with its demo pages and the
+  # config schema, in the same relative layout the demos expect (../dist/…)
+  echo "==> widget"
+  (cd web-widget && yarn install && yarn build && yarn size)
+  [ -f web-widget/dist/copa-widget.iife.js ] || { echo "error: web-widget/dist not produced" >&2; exit 1; }
+  mkdir -p bin/frontend/widget/dist bin/frontend/widget/demo bin/frontend/widget/schema
+  cp web-widget/dist/*.js bin/frontend/widget/dist/
+  cp web-widget/demo/*.html bin/frontend/widget/demo/
+  cp web-widget/schema/copa-widget.schema.json bin/frontend/widget/schema/
 fi
 
 # ── binaries ─────────────────────────────────────────────────────────────────
