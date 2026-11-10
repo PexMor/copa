@@ -1,0 +1,21 @@
+# Dex as the *upstream* identity provider for the token issuer's upstream mode (dev/test only).
+issuer: http://127.0.0.1:5556/dex
+storage:
+  type: memory
+web:
+  http: 0.0.0.0:5556
+oauth2:
+  skipApprovalScreen: true
+enablePasswordDB: true
+staticClients:
+  - id: token-issuer
+    name: copa token issuer
+    secret: dev-only-secret
+    redirectURIs:
+      - http://127.0.0.1:8090/login/callback
+staticPasswords:
+  # user: admin@example.com   password: password   (bcrypt hash from dex's own example config)
+  - email: admin@example.com
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    username: admin
+    userID: 08a8684b-db88-4b73-90a9-3cd1661f5466

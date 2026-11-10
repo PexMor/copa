@@ -1,0 +1,28 @@
+{
+  "users": [
+    {
+      "id": "alice",
+      "name": "Alice (team writer)",
+      "email": "alice@example.com",
+      "password": "alice",
+      "groups": ["copa-team"],
+      "scope": "copa:team:rw"
+    },
+    {
+      "id": "bob",
+      "name": "Bob (team reader)",
+      "email": "bob@example.com",
+      "password": "bob",
+      "groups": ["copa-readers"],
+      "scope": "copa:team:r"
+    },
+    {
+      "id": "carol",
+      "name": "Carol (no copa access)",
+      "email": "carol@elsewhere.example",
+      "password": "carol",
+      "groups": [],
+      "scope": ""
+    }
+  ]
+}

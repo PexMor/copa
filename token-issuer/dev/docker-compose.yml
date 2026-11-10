@@ -1,0 +1,9 @@
+# Throwaway dex for testing the token issuer's upstream mode. Bound to loopback only.
+services:
+  dex:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    volumes:
+      - ./dex/config.yaml:/etc/dex/config.yaml:ro
+    ports:
+      - "127.0.0.1:5556:5556"

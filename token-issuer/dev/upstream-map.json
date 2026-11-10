@@ -1,0 +1,6 @@
+{
+  "rules": [
+    { "claim": "email", "value": "admin@example.com", "scope": "copa:team:rw" },
+    { "claim": "email", "value": "*@example.com", "scope": "copa:public:r" }
+  ]
+}
