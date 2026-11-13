@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Server } from '../types';
 import { canConnect } from '../utils/access';
+import { useAccessEpoch } from './useAccessEpoch';
 
 export type WsStatus = 'disconnected' | 'connecting' | 'connected';
 
@@ -15,6 +16,7 @@ export function useWebSocket({ server, namespace, enabled, onMessage }: UseWebSo
   const [status, setStatus] = useState<WsStatus>('disconnected');
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const epoch = useAccessEpoch();
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
 
@@ -55,9 +57,12 @@ export function useWebSocket({ server, namespace, enabled, onMessage }: UseWebSo
       ws.onclose = () => {
         if (cancelled || !enabledRef.current) return;
         setStatus('disconnected');
-        // probe before reconnecting; stays paused if the session expired
-        void canConnect(server.url).then((ok) => {
-          if (ok && !cancelled && enabledRef.current) retryRef.current = setTimeout(connect, 3000);
+        // Probe before reconnecting. `needs-auth`: stay idle, the restore
+        // epoch re-runs this effect after sign-in. `paused` (offline/unreachable):
+        // keep retrying with the normal backoff.
+        void canConnect(server.url).then((decision) => {
+          if (decision === 'needs-auth' || cancelled || !enabledRef.current) return;
+          retryRef.current = setTimeout(connect, 3000);
         });
       };
 
@@ -73,7 +78,7 @@ export function useWebSocket({ server, namespace, enabled, onMessage }: UseWebSo
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [server?.id, server?.url, server?.token, namespace, enabled]);
+  }, [server?.id, server?.url, server?.token, namespace, enabled, epoch]);
 
   return { status, disconnect };
 }

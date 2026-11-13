@@ -39,16 +39,33 @@ export function formatVersion(v: Pick<VersionInfo, 'version' | 'commit' | 'built
   return `${v.version} · ${v.commit} · ${v.built.replace('T', ' ').replace(/:\d\dZ$/, 'Z')}`;
 }
 
-/** null = server has no /api/version (older copasrv) or could not be read. */
-export async function fetchServerVersion(server: CopaServer): Promise<VersionInfo | null> {
+/**
+ * - `ok`: a valid version payload.
+ * - `none`: the server has no `/api/version` (older copasrv) or it carries no version.
+ * - `unexpected`: network error, HTML (identity-proxy login page) or a server error;
+ *   says nothing about the server's version and may mean the session expired.
+ */
+export type VersionResult =
+  | { kind: 'ok'; info: VersionInfo }
+  | { kind: 'none' }
+  | { kind: 'unexpected' };
+
+export async function fetchServerVersion(server: CopaServer): Promise<VersionResult> {
   try {
     const res = await fetch(`${server.url}/api/version`, { cache: 'no-store' });
-    if (!res.ok || !(res.headers.get('content-type') ?? '').includes('json')) return null;
+    const type = res.headers.get('content-type') ?? '';
+    if (type.includes('text/html')) return { kind: 'unexpected' };
+    if (res.status === 404) return { kind: 'none' };
+    if (!res.ok) return { kind: 'unexpected' };
+    if (!type.includes('json')) return { kind: 'none' };
     const v = await res.json() as Partial<VersionInfo>;
-    if (typeof v.version !== 'string' || typeof v.protocol !== 'number') return null;
-    return { name: v.name ?? 'copasrv', version: v.version, commit: v.commit ?? '?', built: v.built ?? '', protocol: v.protocol };
+    if (typeof v.version !== 'string' || typeof v.protocol !== 'number') return { kind: 'none' };
+    return {
+      kind: 'ok',
+      info: { name: v.name ?? 'copasrv', version: v.version, commit: v.commit ?? '?', built: v.built ?? '', protocol: v.protocol },
+    };
   } catch {
-    return null;
+    return { kind: 'unexpected' };
   }
 }
 

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { CopaServer } from '../types';
+import { useAccessEpoch } from './useAccessEpoch';
+import { recheckAfterFailure } from '../utils/access';
 import { compat, fetchServerVersion, logServerVersion, WEB_VERSION, type Compat, type VersionInfo } from '../utils/version';
 
 export interface ServerVersionState {
@@ -14,17 +16,25 @@ export interface ServerVersionState {
  */
 export function useServerVersion(server: CopaServer | null, connection: string): ServerVersionState {
   const [state, setState] = useState<ServerVersionState>({ remote: undefined, compat: null });
+  const epoch = useAccessEpoch();
 
   useEffect(() => {
     if (!server) { setState({ remote: undefined, compat: null }); return; }
     let cancelled = false;
-    void fetchServerVersion(server).then((remote) => {
+    void fetchServerVersion(server).then((result) => {
       if (cancelled) return;
+      if (result.kind === 'unexpected') {
+        // not evidence about the server's version; maybe the session expired
+        recheckAfterFailure(server.url);
+        setState({ remote: null, compat: null });
+        return;
+      }
+      const remote = result.kind === 'ok' ? result.info : null;
       logServerVersion(server, remote);
       setState({ remote, compat: remote ? compat(WEB_VERSION, remote) : null });
     });
     return () => { cancelled = true; };
-  }, [server?.id, server?.url, connection === 'connected']);
+  }, [server?.id, server?.url, connection === 'connected', epoch]);
 
   return state;
 }

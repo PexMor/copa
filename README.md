@@ -549,6 +549,17 @@ Open `http://host:8080/` in a browser.
 - **GPS sharing** — send your position as a `geo:` URI or a Google Maps, Mapy.cz, Apple Maps or OpenStreetMap link
 - **Shareable link** — `#token=…&url=…` fragment that never reaches server logs
 
+### Behind an identity proxy
+
+The web app is a PWA: its service worker keeps serving the cached shell even after the sign-in session of an identity-aware proxy (Cloudflare Access, Tailscale, oauth2-proxy, IAP) has expired. To notice that, the app probes `GET /__access/probe` before it starts any networking, and after sign-in `GET /__access/login?return=<path>` sends the browser back to the same route (`copasrv` answers both; see `src/server/mod.rs`).
+
+- **Protect both routes with the proxy's policy.** `/__access/*` must not be under a Bypass or Service Auth rule; if a request reaches `copasrv`, the browser has a valid session. Without a proxy the probe route is simply answered and nothing can expire.
+- **Serve the app and the API from one origin** (for example both on `copa.example.com`). A copa server on another origin is not probed, so an expired session there is not detected.
+- **Expired at startup** — the app redirects to the proxy's sign-in once and lands on the same route. If it is still signed out right after (blocked cookies, or the account is not allowed), it shows a **Sign in** button instead of looping.
+- **Expired while open** — a blocking *Session expired* dialog appears when a request returns the login page or the tab comes back to the foreground. **Sign in again** navigates to sign-in; **I've signed in — retry** re-checks without leaving, and live updates reconnect on their own.
+- **Offline** — the app shows a retry screen, never the sign-in page.
+- **Try it** — delete the `CF_Authorization` cookie (browser dev tools → Application → Cookies) and reload, or switch away from the tab and back.
+
 ## Embeddable widget
 
 `web-widget/` builds a small component that lets any web page share text and files through a copa server —

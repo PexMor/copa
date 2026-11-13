@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Web app, behind an identity proxy: live updates (`/ws`, `/ws/events`), history, capabilities and the version check now resume after signing in again, without a page reload.
+- Web app: after one automatic sign-in redirect that does not take effect (blocked cookies, policy denial) it shows a manual **Sign in** screen instead of looping.
+- Web app: a login page or network error in place of the clipboard, history or version response is treated as an expired session; a 200 HTML reply to a clipboard push is no longer reported as a successful sync, and the version check no longer reports "older copasrv" for it.
+- Web app: a 401/403 on the access probe is treated as an expired session (it can only come from the proxy).
+- The *I've signed in — retry* button keeps the dialog open, with a hint, while the session is still expired.
+
+### Added
+- `web/`: vitest tests (`yarn test`) for the session gate, reconnect and login-page handling.
+- README: "Behind an identity proxy" section.
+
 ### Changed
 - `copasrv` no longer embeds a legacy UI (`web/ui.html` removed). It serves the web app from `--static-dir` / `COPA_STATIC_DIR`, defaulting to `<exe dir>/../share/copa/dist`, then `~/.local/share/copa/dist`, and exits with an error listing the searched paths if none has an `index.html`.
 - `copasrv` prints the web app directory at startup.

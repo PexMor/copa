@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { CopaServer, HistoryEvent, HistoryItem } from '../types';
 import { fetchHistory } from '../utils/api';
 import { canConnect } from '../utils/access';
+import { useAccessEpoch } from './useAccessEpoch';
 
 interface UseHistoryOpts {
   server: CopaServer | null;
@@ -16,13 +17,16 @@ export function useHistory({ server, namespace, enabled, live }: UseHistoryOpts)
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const activeRef = useRef(false);
+  const epoch = useAccessEpoch();
 
   const refresh = useCallback(async () => {
     if (!server || !enabled) { setItems([]); return; }
     try {
       setItems(await fetchHistory(server, namespace));
     } catch { /* keep what we have */ }
-  }, [server?.id, server?.url, server?.token, namespace, enabled]);
+  // epoch: a restored session changes `refresh`, which re-fetches the list and
+  // (through the dependency below) recreates the live connection.
+  }, [server?.id, server?.url, server?.token, namespace, enabled, epoch]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -59,8 +63,9 @@ export function useHistory({ server, namespace, enabled, live }: UseHistoryOpts)
       };
       ws.onclose = () => {
         if (!activeRef.current) return;
-        void canConnect(server.url).then((ok) => {
-          if (ok && activeRef.current) retry = setTimeout(connect, 3000);
+        // `needs-auth`: idle until the restore epoch recreates this effect.
+        void canConnect(server.url).then((decision) => {
+          if (decision !== 'needs-auth' && activeRef.current) retry = setTimeout(connect, 3000);
         });
       };
       ws.onerror = () => { ws?.close(); };

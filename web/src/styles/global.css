@@ -630,6 +630,7 @@ code { background: var(--border); padding: .1em .3em; border-radius: 4px; font-f
   background: var(--accent); color: #fff; border: 0; border-radius: 8px;
   padding: 0.6rem 1rem; font: inherit; cursor: pointer;
 }
+.access-hint { color: var(--muted); font-size: 0.875rem; }
 .access-link {
   background: none; border: 0; color: var(--muted); font: inherit;
   cursor: pointer; text-decoration: underline;
