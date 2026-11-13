@@ -7,7 +7,7 @@ compatibility: Requires openspec CLI.
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.14.0"
+  generatedBy: "2.0.0"
 ---
 
 Implement tasks from an OpenSpec change.
@@ -20,12 +20,12 @@ One `"root": null` is not about setup: when a `status` error message starts with
 
 Otherwise, with no root, what happens next depends on how this workflow was reached:
 
-- **Auto-selected**: you chose this workflow yourself, without the user naming OpenSpec, naming this skill, or running its slash command. Stop using OpenSpec and answer the request normally, as you would with no OpenSpec installed. Do not ask them to set anything up and do not mention OpenSpec setup.
-- **Explicit OpenSpec request**: the user named OpenSpec, named this skill, or ran its slash command. Stop before writing and ask how to proceed: set this project up (`openspec init`), target a store they already have (`--store <id>`), or continue without OpenSpec for this request. Wait for their answer.
+- **Auto-selected**: you chose this workflow yourself, without the user naming OpenSpec, naming this skill, or invoking this skill by name. Stop using OpenSpec and answer the request normally, as you would with no OpenSpec installed. Do not ask them to set anything up and do not mention OpenSpec setup.
+- **Explicit OpenSpec request**: the user named OpenSpec, named this skill, or invoked this skill by name. Stop before writing and ask how to proceed: set this project up (`openspec init`), target a store they already have (`--store <id>`), or continue without OpenSpec for this request. Wait for their answer.
 
 In both branches, never create the root as a side effect: do not run `openspec init` until the user asks for it, do not hand-create `openspec/` files, and do not let a command create it.
 
-**Input**: Optionally specify a change name (e.g., `$openspec-apply-change (Codex) or /openspec-apply-change (other agents) add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
+**Input**: Optionally specify a change name (e.g., `openspec-apply-change add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
 **Steps**
 
@@ -36,7 +36,7 @@ In both branches, never create the root as a side effect: do not run `openspec i
    - Auto-select if only one active change exists
    - If ambiguous, run `openspec list --json` to get available changes and ask the user to select one
 
-   Always announce: "Using change: <name>" and how to override (e.g., `$openspec-apply-change (Codex) or /openspec-apply-change (other agents) <other>`).
+   Always announce: "Using change: <name>" and how to override (e.g., `openspec-apply-change <other>`).
 
 2. **Check status to understand the schema**
    ```bash
@@ -66,7 +66,7 @@ In both branches, never create the root as a side effect: do not run `openspec i
    - If `state: "blocked"`: show the message and pause implementation.
      - If `missingArtifacts` is non-empty: suggest completing the missing artifacts. Run `openspec status --change "<name>" --json`, select the next `ready` artifact (not `skipped` or `blocked`), and use `openspec instructions "<artifact-id>" --change "<name>" --json` for its rules and template. Keep the selected `--store <id>` on both commands.
      - Otherwise, follow the CLI instruction to create or repair the schema-configured tracking file from existing planning artifacts. Do not assume another artifact is ready or start implementation while blocked.
-   - If `state: "all_done"`: congratulate, suggest archive
+   - If `state: "all_done"`: report that all tracked tasks are complete and suggest review or verification as appropriate before archiving
    - Otherwise: proceed to implementation
 
    Treat `context` as a required prompt-level input. Read and consider it, and
@@ -125,7 +125,7 @@ In both branches, never create the root as a side effect: do not run `openspec i
    Display:
    - Tasks completed this session
    - Overall progress: "N/M tasks complete"
-   - If all done: suggest archive
+   - If all done: report that tracked tasks are complete and suggest review or verification as appropriate before archiving
    - If paused: explain why and wait for guidance
 
 **Output During Implementation**
@@ -156,7 +156,8 @@ Working on task 4/7: <task description>
 - [x] Task 2
 ...
 
-All tasks complete! You can archive this change with `$openspec-archive-change (Codex) or /openspec-archive-change (other agents)`.
+All tracked tasks are complete. Review or verify the change as appropriate
+before archiving. You can archive this change with `openspec-archive-change`.
 ```
 
 **Output On Pause (Issue Encountered)**
